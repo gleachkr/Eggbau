@@ -1,0 +1,11 @@
+---
+source: tests/stage0.rs
+assertion_line: 28
+expression: output
+---
+discovery report
+input: tests/fixtures/empty/input.mm0
+
+possible saturation conversions:
+possible saturation horn rules:
+possible congruences:

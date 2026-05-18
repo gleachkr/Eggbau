@@ -1,5 +1,7 @@
 third_party
 .direnv/
+.cargo_home/
+target/
 AGENTS.md
 PLAN.md
 *.lec
