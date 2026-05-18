@@ -56,13 +56,14 @@ fn label_generation_is_byte_deterministic() {
 }
 
 #[test]
-fn proof_api_spike_documents_current_gap() {
+fn proof_api_spike_documents_vendored_patch() {
     let spike = run_proof_api_spike().unwrap();
 
     assert_eq!(spike.egglog_version, "2.0.0");
     assert!(spike.term_encoding_runs);
-    assert!(!spike.prove_exists_command_available);
-    assert!(!spike.structured_proof_api_available);
+    assert!(spike.prove_exists_command_available);
+    assert!(spike.structured_proof_api_available);
+    assert!(spike.note.contains("read-only ProofStore"));
 }
 
 #[test]

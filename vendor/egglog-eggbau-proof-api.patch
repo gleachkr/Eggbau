@@ -1,0 +1,32 @@
+diff --git a/src/lib.rs b/src/lib.rs
+index e131cd3e..fe48998b 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -61,6 +61,11 @@ use log::{Level, log_enabled};
+ use numeric_id::DenseIdMap;
+ use prelude::*;
+ pub use proofs::proof_encoding_helpers::{file_supports_proofs, program_supports_proofs};
++
++/// Read-only proof reconstruction API.
++pub mod proof {
++    pub use crate::proofs::proof_format::{Justification, Proof, ProofId, ProofStore, Proposition};
++}
+ use scheduler::{SchedulerId, SchedulerRecord};
+ pub use serialize::{SerializeConfig, SerializeOutput, SerializedNode};
+ use sort::*;
+diff --git a/src/proofs/proof_format.rs b/src/proofs/proof_format.rs
+index 29dbfa95..027e2dfb 100644
+--- a/src/proofs/proof_format.rs
++++ b/src/proofs/proof_format.rs
+@@ -311,6 +311,11 @@ impl RawProofStore {
+ }
+ 
+ impl ProofStore {
++    /// Get the term DAG used by this proof store.
++    pub fn term_dag(&self) -> &TermDag {
++        &self.term_dag
++    }
++
+     /// Get the [`Proof`] with the given id.
+     /// Panics if the id is invalid (if it came from another proof store, for example).
+     pub fn get(&self, proof_id: ProofId) -> &Proof {

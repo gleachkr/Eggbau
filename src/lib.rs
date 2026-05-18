@@ -14,7 +14,7 @@ pub mod mm0;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-/// The egglog dependency is intentionally pinned in `Cargo.toml`.
+/// The vendored egglog dependency is intentionally pinned in `Cargo.toml`.
 pub const PINNED_EGGLOG: &str = "2.0.0";
 
 /// Proof justifications eggbau intends to reconstruct in MM0/Aufbau.
@@ -107,7 +107,7 @@ pub fn prove_theorem(_mm0: &str, _config: EggbauConfig) -> Result<ProveResult, E
 pub fn version_report() -> String {
     let mut report = String::new();
     report.push_str(&format!("eggbau {}\n", env!("CARGO_PKG_VERSION")));
-    report.push_str(&format!("egglog {} (crates.io)\n", PINNED_EGGLOG));
+    report.push_str(&format!("egglog {} (vendored patch)\n", PINNED_EGGLOG));
     report.push_str(&format!(
         "supported proof justifications: {}\n",
         SUPPORTED_PROOF_JUSTIFICATIONS.join(", ")
