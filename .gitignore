@@ -1,0 +1,5 @@
+third_party
+.direnv/
+AGENTS.md
+PLAN.md
+*.lec
