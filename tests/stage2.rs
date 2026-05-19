@@ -1,6 +1,8 @@
 use std::path::Path;
 use std::process::Command;
 
+mod common;
+
 use eggbau::discover::{DiscoveryReport, validate_metadata};
 use eggbau::export::ExportEnv;
 use eggbau::mm0::parse_env;
@@ -84,18 +86,7 @@ fn cli_discover_supports_suggest_annotations() {
 
 #[test]
 fn discover_stress_runs_on_extracted_mm0_fixture_inventory() {
-    let mut paths = std::fs::read_dir("tests/fixtures/third_party_mm0")
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
-        .filter(|path| path.extension().is_some_and(|ext| ext == "mm0"))
-        .collect::<Vec<_>>();
-    let mut stress_paths = std::fs::read_dir("tests/fixtures/third_party_mm0/stress")
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
-        .filter(|path| path.extension().is_some_and(|ext| ext == "mm0"))
-        .collect::<Vec<_>>();
-    paths.append(&mut stress_paths);
-    paths.sort();
+    let paths = common::all_third_party_fixture_paths();
 
     let mut totals = DiscoveryStressTotals::default();
     for path in &paths {

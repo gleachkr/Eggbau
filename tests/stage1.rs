@@ -1,14 +1,11 @@
 use std::process::Command;
 
+mod common;
+
 use eggbau::export::ExportEnv;
 use eggbau::mm0::{MathExpr, NotationKind, SaturationMode, parse_env};
 
 const STAGE1_INPUT: &str = include_str!("fixtures/stage1/input.mm0");
-const AUFBAU_PASS_DEF: &str = include_str!("fixtures/third_party_mm0/aufbau_pass_def.mm0");
-const AUFBAU_PASS_NORMALIZE_IDENTITY: &str =
-    include_str!("fixtures/third_party_mm0/aufbau_pass_normalize_identity.mm0");
-const MM0_HELLO: &str = include_str!("fixtures/third_party_mm0/mm0_hello.mm0");
-const MM0_PEANO: &str = include_str!("fixtures/third_party_mm0/mm0_peano.mm0");
 
 #[test]
 fn parses_declarations_and_metadata() {
@@ -200,40 +197,44 @@ term z: s;
 
 #[test]
 fn parses_copied_third_party_fixture_inventory() {
-    let cases = [
-        ("aufbau_pass_def", AUFBAU_PASS_DEF, 1, 2, 2, 2),
-        (
-            "aufbau_pass_normalize_identity",
-            AUFBAU_PASS_NORMALIZE_IDENTITY,
-            1,
-            6,
-            9,
-            3,
-        ),
-        ("mm0_hello", MM0_HELLO, 3, 30, 0, 3),
-        ("mm0_peano", MM0_PEANO, 3, 116, 81, 57),
-    ];
+    for fixture in common::TOP_LEVEL_THIRD_PARTY_FIXTURES {
+        let env = parse_env(fixture.input).unwrap_or_else(|err| {
+            panic!(
+                "copied third-party fixture {} did not parse: {err}",
+                fixture.name
+            )
+        });
 
-    for (name, input, sorts, terms, theorems, notations) in cases {
-        let env = parse_env(input)
-            .unwrap_or_else(|err| panic!("copied third-party fixture {name} did not parse: {err}"));
-
-        assert_eq!(env.sorts.len(), sorts, "sort count for {name}");
-        assert_eq!(env.terms.len(), terms, "term count for {name}");
-        assert_eq!(env.theorems.len(), theorems, "theorem count for {name}");
-        assert_eq!(env.notations.len(), notations, "notation count for {name}");
+        assert_eq!(
+            env.sorts.len(),
+            fixture.expected.sorts,
+            "sort count for {}",
+            fixture.name
+        );
+        assert_eq!(
+            env.terms.len(),
+            fixture.expected.terms,
+            "term count for {}",
+            fixture.name
+        );
+        assert_eq!(
+            env.theorems.len(),
+            fixture.expected.theorems,
+            "theorem count for {}",
+            fixture.name
+        );
+        assert_eq!(
+            env.notations.len(),
+            fixture.expected.notations,
+            "notation count for {}",
+            fixture.name
+        );
     }
 }
 
 #[test]
 fn parses_copied_third_party_stress_suite() {
-    let fixture_dir = "tests/fixtures/third_party_mm0/stress";
-    let mut paths = std::fs::read_dir(fixture_dir)
-        .unwrap()
-        .map(|entry| entry.unwrap().path())
-        .filter(|path| path.extension().is_some_and(|ext| ext == "mm0"))
-        .collect::<Vec<_>>();
-    paths.sort();
+    let paths = common::stress_fixture_paths();
 
     let mut totals = StressTotals::default();
     for path in &paths {
@@ -281,7 +282,7 @@ struct StressTotals {
 
 #[test]
 fn parses_mm0_hello_sort_modifiers_arrow_types_and_defs() {
-    let env = parse_env(MM0_HELLO).unwrap();
+    let env = parse_env(common::MM0_HELLO).unwrap();
 
     assert_eq!(
         env.sorts
@@ -309,7 +310,7 @@ fn parses_mm0_hello_sort_modifiers_arrow_types_and_defs() {
 
 #[test]
 fn parses_aufbau_relation_congruence_and_ignored_rewrites() {
-    let env = parse_env(AUFBAU_PASS_NORMALIZE_IDENTITY).unwrap();
+    let env = parse_env(common::AUFBAU_PASS_NORMALIZE_IDENTITY).unwrap();
 
     assert_eq!(env.sorts[0].name, "wff");
     assert_eq!(env.metadata.relations.len(), 1);
@@ -331,7 +332,7 @@ fn parses_aufbau_relation_congruence_and_ignored_rewrites() {
 
 #[test]
 fn desugars_prefix_infix_and_constant_notation_to_kernel_terms() {
-    let env = parse_env(AUFBAU_PASS_NORMALIZE_IDENTITY).unwrap();
+    let env = parse_env(common::AUFBAU_PASS_NORMALIZE_IDENTITY).unwrap();
 
     let biid = env.theorem("biid").unwrap();
     assert_eq!(biid.conclusion.head(), Some("bi"));
@@ -397,7 +398,7 @@ theorem t (a b c: s): $ a <+> b // c $;
 
 #[test]
 fn desugars_simple_general_notation_to_kernel_terms() {
-    let env = parse_env(MM0_PEANO).unwrap();
+    let env = parse_env(common::MM0_PEANO).unwrap();
     let elab = env.theorem("elab").unwrap();
 
     assert_eq!(elab.conclusion.source, "a e. {x | p} <-> [ a / x ] p");
@@ -414,7 +415,7 @@ fn desugars_simple_general_notation_to_kernel_terms() {
 
 #[test]
 fn parses_mm0_peano_without_rejecting_unsupported_binders() {
-    let env = parse_env(MM0_PEANO).unwrap();
+    let env = parse_env(common::MM0_PEANO).unwrap();
 
     assert!(env.diagnostics.is_empty());
     assert!(env.notations.iter().any(|notation| {
