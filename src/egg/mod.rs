@@ -3,6 +3,7 @@ use std::fmt::Write as _;
 
 use serde::{Deserialize, Serialize};
 
+use crate::cert::{self, Certificate, EqualityTranslationInput, HypothesisFiat, LocalProofVar};
 use crate::export::{self, ExportEnv, ExportTermKind};
 use crate::mm0::{Formula, MathExpr, Mm0Env, TheoremDecl};
 use crate::{Diagnostic, DiagnosticSeverity, EggbauError, PINNED_EGGLOG};
@@ -30,6 +31,7 @@ pub struct TheoremProof {
     pub proof_debug: String,
     pub proof_summary: ProofSummary,
     pub allowed_fiats: Vec<AllowedFiat>,
+    pub certificate: Option<Certificate>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -78,11 +80,13 @@ struct PreparedTheorem {
     hypotheses: Vec<String>,
     seeds: Vec<String>,
     allowed_fiats: BTreeMap<String, AllowedFiat>,
+    hypothesis_fiats: Vec<HypothesisFiat>,
 }
 
 #[derive(Clone, Debug)]
 struct LocalConstructor {
     name: String,
+    source_name: String,
     sort: String,
 }
 
@@ -119,12 +123,40 @@ pub fn prove_theorem(
     let proof_debug = walker.walk(proof_id)?;
     let proof = proof_store.get(proof_id);
     let root_proposition = walker.proposition_string(proof.proposition());
+    let certificate = if prepared.goal.kind == EgglogGoalKind::Equality {
+        let relation = theorem_relation(export_env, &theorem_decl.conclusion)?;
+        Some(cert::translate_equality_proof(EqualityTranslationInput {
+            proof_store,
+            root: proof_id,
+            export_env,
+            relation,
+            target_lhs_egglog: &prepared.goal.arguments[0],
+            target_rhs_egglog: &prepared.goal.arguments[1],
+            local_vars: prepared
+                .local_constructors
+                .iter()
+                .map(|constructor| LocalProofVar {
+                    egglog_constructor: constructor.name.clone(),
+                    source_name: constructor.source_name.clone(),
+                })
+                .collect(),
+            hypothesis_fiats: prepared.hypothesis_fiats.clone(),
+        })?)
+    } else {
+        None
+    };
 
     let mut diagnostics = Vec::new();
     diagnostics.push(Diagnostic {
         severity: DiagnosticSeverity::Info,
         message: format!("egglog extracted a proof for theorem {theorem}"),
     });
+    if certificate.is_some() {
+        diagnostics.push(Diagnostic {
+            severity: DiagnosticSeverity::Info,
+            message: "translated egglog equality proof to certificate IR".to_owned(),
+        });
+    }
 
     Ok(TheoremProof {
         theorem: prepared.theorem,
@@ -134,6 +166,7 @@ pub fn prove_theorem(
         proof_debug,
         proof_summary: walker.summary,
         allowed_fiats: prepared.allowed_fiats.into_values().collect(),
+        certificate,
         diagnostics,
     })
 }
@@ -170,12 +203,14 @@ fn prepare_theorem(
         variables.insert(binder.name.clone(), render_call(&constructor, &[]));
         local_constructors.push(LocalConstructor {
             name: constructor,
+            source_name: binder.name.clone(),
             sort: sort.egglog_name.clone(),
         });
     }
 
     let mut allowed_fiats = BTreeMap::new();
     let mut hypotheses = Vec::new();
+    let mut hypothesis_fiats = Vec::new();
     for (idx, hypothesis) in theorem.hypotheses.iter().enumerate() {
         let assertion = render_hypothesis(export_env, hypothesis, &variables).map_err(|err| {
             EggbauError::Egglog(format!(
@@ -184,14 +219,23 @@ fn prepare_theorem(
                 theorem.name
             ))
         })?;
-        for proposition in assertion.allowed_fiats {
+        let formula = cert::formula_from_mm0(hypothesis, export_env);
+        for (fiat_idx, proposition) in assertion.allowed_fiats.iter().enumerate() {
             allowed_fiats.insert(
                 proposition.clone(),
                 AllowedFiat {
                     reason: FiatReason::TheoremHypothesis,
-                    proposition,
+                    proposition: proposition.clone(),
                 },
             );
+            if let Some(formula) = &formula {
+                hypothesis_fiats.push(HypothesisFiat {
+                    proposition: proposition.clone(),
+                    hyp_index: idx + 1,
+                    formula: formula.clone(),
+                    needs_symmetry: fiat_idx == 1,
+                });
+            }
         }
         hypotheses.push(assertion.command);
     }
@@ -226,6 +270,7 @@ fn prepare_theorem(
         hypotheses,
         seeds,
         allowed_fiats,
+        hypothesis_fiats,
     })
 }
 
@@ -334,6 +379,24 @@ fn render_proof_program(export_env: &ExportEnv, prepared: &PreparedTheorem) -> S
     writeln!(out, "(run-schedule (run goals))").expect("write to string");
     writeln!(out, "(prove {})", prepared.goal.query).expect("write to string");
     out
+}
+
+fn theorem_relation<'a>(
+    export_env: &'a ExportEnv,
+    formula: &Formula,
+) -> Result<&'a str, EggbauError> {
+    let Some((sort, _, _)) = relation_formula(export_env, formula) else {
+        return Err(EggbauError::Egglog(
+            "equality proof target is not a relation formula".to_owned(),
+        ));
+    };
+    export_env
+        .relations
+        .get(sort)
+        .map(|bundle| bundle.relation.as_str())
+        .ok_or_else(|| {
+            EggbauError::Egglog("equality proof target has no relation bundle".to_owned())
+        })
 }
 
 fn relation_formula<'a>(
@@ -445,7 +508,9 @@ impl<'a> ProofWalker<'a> {
         match proof.justification() {
             egglog::proof::Justification::Fiat => {
                 self.summary.fiat += 1;
-                if !self.allowed_fiats.contains_key(&proposition) {
+                if !self.allowed_fiats.contains_key(&proposition)
+                    && !is_reflexive_proposition(&proposition)
+                {
                     return Err(EggbauError::Egglog(format!(
                         "egglog proof used unapproved Fiat proposition: {proposition}"
                     )));
@@ -505,6 +570,12 @@ impl<'a> ProofWalker<'a> {
             self.store.term_dag().to_string(proposition.rhs())
         )
     }
+}
+
+fn is_reflexive_proposition(proposition: &str) -> bool {
+    proposition
+        .split_once(" = ")
+        .is_some_and(|(lhs, rhs)| lhs == rhs)
 }
 
 fn render_call(head: &str, args: &[String]) -> String {
