@@ -87,6 +87,7 @@ struct PreparedTheorem {
 struct LocalConstructor {
     name: String,
     source_name: String,
+    source_sort: String,
     sort: String,
 }
 
@@ -123,6 +124,15 @@ pub fn prove_theorem(
     let proof_debug = walker.walk(proof_id)?;
     let proof = proof_store.get(proof_id);
     let root_proposition = walker.proposition_string(proof.proposition());
+    let local_vars = prepared
+        .local_constructors
+        .iter()
+        .map(|constructor| LocalProofVar {
+            egglog_constructor: constructor.name.clone(),
+            source_name: constructor.source_name.clone(),
+            sort: constructor.source_sort.clone(),
+        })
+        .collect::<Vec<_>>();
     let certificate = if prepared.goal.kind == EgglogGoalKind::Equality {
         let relation = theorem_relation(export_env, &theorem_decl.conclusion)?;
         Some(cert::translate_equality_proof(EqualityTranslationInput {
@@ -132,18 +142,22 @@ pub fn prove_theorem(
             relation,
             target_lhs_egglog: &prepared.goal.arguments[0],
             target_rhs_egglog: &prepared.goal.arguments[1],
-            local_vars: prepared
-                .local_constructors
-                .iter()
-                .map(|constructor| LocalProofVar {
-                    egglog_constructor: constructor.name.clone(),
-                    source_name: constructor.source_name.clone(),
-                })
-                .collect(),
+            local_vars,
             hypothesis_fiats: prepared.hypothesis_fiats.clone(),
         })?)
     } else {
-        None
+        let (target_pred, _) =
+            fact_formula(export_env, &theorem_decl.conclusion).map_err(EggbauError::Egglog)?;
+        Some(translate_fact_with_equality_fallback(FactFallbackInput {
+            egraph: &mut egraph,
+            proof_store,
+            root: proof_id,
+            export_env,
+            target_pred,
+            target_args_egglog: prepared.goal.arguments.clone(),
+            local_vars,
+            hypothesis_fiats: prepared.hypothesis_fiats.clone(),
+        })?)
     };
 
     let mut diagnostics = Vec::new();
@@ -151,12 +165,10 @@ pub fn prove_theorem(
         severity: DiagnosticSeverity::Info,
         message: format!("egglog extracted a proof for theorem {theorem}"),
     });
-    if certificate.is_some() {
-        diagnostics.push(Diagnostic {
-            severity: DiagnosticSeverity::Info,
-            message: "translated egglog equality proof to certificate IR".to_owned(),
-        });
-    }
+    diagnostics.push(Diagnostic {
+        severity: DiagnosticSeverity::Info,
+        message: "translated egglog proof to certificate IR".to_owned(),
+    });
 
     Ok(TheoremProof {
         theorem: prepared.theorem,
@@ -169,6 +181,137 @@ pub fn prove_theorem(
         certificate,
         diagnostics,
     })
+}
+
+struct FactFallbackInput<'a> {
+    egraph: &'a mut egglog::EGraph,
+    proof_store: &'a egglog::proof::ProofStore,
+    root: egglog::proof::ProofId,
+    export_env: &'a ExportEnv,
+    target_pred: &'a str,
+    target_args_egglog: Vec<String>,
+    local_vars: Vec<LocalProofVar>,
+    hypothesis_fiats: Vec<HypothesisFiat>,
+}
+
+struct ExtraEqualityRequest {
+    sort: String,
+    relation: String,
+    lhs_egglog: String,
+    rhs_egglog: String,
+}
+
+fn translate_fact_with_equality_fallback(
+    mut input: FactFallbackInput<'_>,
+) -> Result<Certificate, EggbauError> {
+    let mut extra_equalities = Vec::new();
+    let mut requested = BTreeSet::new();
+
+    loop {
+        let result = cert::translate_fact_proof(cert::FactTranslationInput {
+            proof_store: input.proof_store,
+            root: input.root,
+            export_env: input.export_env,
+            target_pred: input.target_pred,
+            target_args_egglog: input.target_args_egglog.clone(),
+            local_vars: input.local_vars.clone(),
+            hypothesis_fiats: input.hypothesis_fiats.clone(),
+            extra_equalities: extra_equalities.clone(),
+        });
+
+        let Err(error) = result else {
+            return result.map_err(EggbauError::from);
+        };
+        let cert::TranslateError::MissingEqualityProof {
+            sort,
+            relation,
+            lhs_egglog,
+            rhs_egglog,
+        } = error
+        else {
+            return Err(EggbauError::from(error));
+        };
+
+        let request = ExtraEqualityRequest {
+            sort,
+            relation,
+            lhs_egglog,
+            rhs_egglog,
+        };
+        let key = (
+            request.sort.clone(),
+            request.lhs_egglog.clone(),
+            request.rhs_egglog.clone(),
+        );
+        if !requested.insert(key) {
+            return Err(EggbauError::from(
+                cert::TranslateError::MissingEqualityProof {
+                    sort: request.sort,
+                    relation: request.relation,
+                    lhs_egglog: request.lhs_egglog,
+                    rhs_egglog: request.rhs_egglog,
+                },
+            ));
+        }
+
+        let certificate = prove_extra_equality(&mut input, &request)?;
+        extra_equalities.push(cert::ExtraEqualityCertificate {
+            sort: request.sort.clone(),
+            relation: request.relation.clone(),
+            lhs_egglog: request.lhs_egglog.clone(),
+            rhs_egglog: request.rhs_egglog.clone(),
+            certificate,
+        });
+    }
+}
+
+fn prove_extra_equality(
+    input: &mut FactFallbackInput<'_>,
+    request: &ExtraEqualityRequest,
+) -> Result<Certificate, EggbauError> {
+    let constructor = input
+        .export_env
+        .proof_goals
+        .equality
+        .get(&request.sort)
+        .ok_or_else(|| {
+            EggbauError::Egglog(format!(
+                "no equality goal constructor for sort {}",
+                request.sort
+            ))
+        })?;
+    let query = render_call(
+        constructor,
+        &[request.lhs_egglog.clone(), request.rhs_egglog.clone()],
+    );
+    let program = format!("(run-schedule (run goals))\n(prove {query})\n");
+    let outputs = input
+        .egraph
+        .parse_and_run_program(None, &program)
+        .map_err(|err| EggbauError::Egglog(err.to_string()))?;
+    let Some((proof_store, proof_id)) = outputs.iter().rev().find_map(|output| match output {
+        egglog::CommandOutput::ProveExists {
+            proof_store,
+            proof_id,
+        } => Some((proof_store, *proof_id)),
+        _ => None,
+    }) else {
+        return Err(EggbauError::Egglog(format!(
+            "egglog did not return a proof for equality fallback {query}"
+        )));
+    };
+
+    cert::translate_equality_proof(EqualityTranslationInput {
+        proof_store,
+        root: proof_id,
+        export_env: input.export_env,
+        relation: &request.relation,
+        target_lhs_egglog: &request.lhs_egglog,
+        target_rhs_egglog: &request.rhs_egglog,
+        local_vars: input.local_vars.clone(),
+        hypothesis_fiats: input.hypothesis_fiats.clone(),
+    })
+    .map_err(EggbauError::from)
 }
 
 fn prepare_theorem(
@@ -204,6 +347,7 @@ fn prepare_theorem(
         local_constructors.push(LocalConstructor {
             name: constructor,
             source_name: binder.name.clone(),
+            source_sort: binder.sort.clone(),
             sort: sort.egglog_name.clone(),
         });
     }

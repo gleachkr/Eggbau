@@ -1,5 +1,5 @@
 sort s;
-sort wff;
+provable sort wff;
 
 term z: s;
 term f (x: s): s;

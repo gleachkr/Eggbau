@@ -6,7 +6,7 @@ use eggbau::{EggbauConfig, OutputMode};
 
 const CONVERSION_INPUT: &str = r#"
 sort s;
-sort wff;
+provable sort wff;
 term z: s;
 term f (x: s): s;
 term eq (x y: s): wff;
@@ -21,7 +21,7 @@ theorem target (x: s): $ eq (f x) x $;
 
 const HORN_INPUT: &str = r#"
 sort s;
-sort wff;
+provable sort wff;
 term z: s;
 term eq (x y: s): wff;
 term p (x: s): wff;
@@ -37,14 +37,22 @@ theorem target (x: s): $ q x $ > $ p x $;
 
 const MODULO_EQUALITY_INPUT: &str = r#"
 sort s;
-sort wff;
+provable sort wff;
 term eq (x y: s): wff;
+term bi (x y: wff): wff;
 term p (x: s): wff;
 term q (x: s): wff;
 --| @relation s eq eq_refl eq_trans eq_sym _
 axiom eq_refl (x: s): $ eq x x $;
 axiom eq_trans (x y z: s): $ eq x y $ > $ eq y z $ > $ eq x z $;
 axiom eq_sym (x y: s): $ eq x y $ > $ eq y x $;
+--| @relation wff bi bi_refl bi_trans bi_sym bi_mp
+axiom bi_refl (x: wff): $ bi x x $;
+axiom bi_trans (x y z: wff): $ bi x y $ > $ bi y z $ > $ bi x z $;
+axiom bi_sym (x y: wff): $ bi x y $ > $ bi y x $;
+axiom bi_mp (x y: wff): $ bi x y $ > $ x $ > $ y $;
+--| @congr
+axiom q_congr (x y: s): $ eq x y $ > $ bi (q x) (q y) $;
 --| @saturation horn
 axiom p_from_q (x: s): $ q x $ > $ p x $;
 theorem target (x y: s): $ eq x y $ > $ q y $ > $ p x $;

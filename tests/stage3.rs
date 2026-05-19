@@ -7,7 +7,7 @@ use eggbau::mm0::{SaturationMode, parse_env};
 
 const CONVERSION_INPUT: &str = r#"
 sort s;
-sort wff;
+provable sort wff;
 term z: s;
 term f (x: s): s;
 term eq (x y: s): wff;
@@ -21,7 +21,7 @@ axiom f_id (x: s): $ eq (f x) x $;
 
 const HORN_INPUT: &str = r#"
 sort s;
-sort wff;
+provable sort wff;
 term z: s;
 term eq (x y: s): wff;
 term p (x: s): wff;
@@ -90,7 +90,7 @@ fn ltr_rtl_and_both_have_stable_rule_names_and_orientation() {
     let env = parse_env(
         r#"
 sort s;
-sort wff;
+provable sort wff;
 term z: s;
 term f (x: s): s;
 term eq (x y: s): wff;

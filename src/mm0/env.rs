@@ -16,11 +16,25 @@ impl Mm0Env {
     pub fn theorem(&self, name: &str) -> Option<&TheoremDecl> {
         self.theorems.iter().find(|theorem| theorem.name == name)
     }
+
+    pub fn sort(&self, name: &str) -> Option<&SortDecl> {
+        self.sorts.iter().find(|sort| sort.name == name)
+    }
+
+    pub fn sort_is_provable(&self, name: &str) -> bool {
+        self.sort(name).is_some_and(|sort| sort.provable)
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SortDecl {
     pub name: String,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub provable: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]

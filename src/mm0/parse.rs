@@ -87,10 +87,10 @@ fn parse_statement(
         return Ok(());
     }
 
-    if let Some(name) = parse_sort_decl(trimmed, statement.line)? {
+    if let Some(sort) = parse_sort_decl(trimmed, statement.line)? {
         require_no_pending(pending, statement.line, "sort declaration")?;
-        ensure_unique_sort(&name, names, statement.line)?;
-        env.sorts.push(SortDecl { name });
+        ensure_unique_sort(&sort.name, names, statement.line)?;
+        env.sorts.push(sort);
         return Ok(());
     }
 
@@ -571,7 +571,7 @@ fn is_simple_ident(name: &str) -> bool {
     chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
 }
 
-fn parse_sort_decl(text: &str, line: usize) -> Result<Option<String>, Mm0ParseError> {
+fn parse_sort_decl(text: &str, line: usize) -> Result<Option<SortDecl>, Mm0ParseError> {
     let parts = text.split_whitespace().collect::<Vec<_>>();
     let Some(sort_idx) = parts.iter().position(|part| *part == "sort") else {
         return Ok(None);
@@ -579,14 +579,17 @@ fn parse_sort_decl(text: &str, line: usize) -> Result<Option<String>, Mm0ParseEr
     if sort_idx + 2 != parts.len()
         || !parts[..sort_idx]
             .iter()
-            .all(|part| matches!(*part, "strict" | "free" | "provable"))
+            .all(|part| matches!(*part, "pure" | "strict" | "free" | "provable"))
     {
         return Ok(None);
     }
 
     let name = parts[sort_idx + 1];
     ensure_simple_ident(name, line)?;
-    Ok(Some(name.to_owned()))
+    Ok(Some(SortDecl {
+        name: name.to_owned(),
+        provable: parts[..sort_idx].contains(&"provable"),
+    }))
 }
 
 fn parse_notation_decl(text: &str, line: usize) -> Result<Option<NotationDecl>, Mm0ParseError> {
@@ -1477,7 +1480,7 @@ mod tests {
     fn parses_stage_one_fixture_shapes() {
         let input = r#"
 sort bv64;
-sort wff;
+provable sort wff;
 term bv0: bv64;
 term bv_add (x y: bv64): bv64;
 term bv_eq (x y: bv64): wff;
@@ -1523,6 +1526,15 @@ term s: s;
 
         assert_eq!(env.sorts[0].name, "s");
         assert_eq!(env.terms[0].name, "s");
+    }
+
+    #[test]
+    fn records_provable_sort_modifier() {
+        let env = parse_env("pure strict provable free sort prop;").unwrap();
+
+        assert_eq!(env.sorts[0].name, "prop");
+        assert!(env.sorts[0].provable);
+        assert!(env.sort_is_provable("prop"));
     }
 
     #[test]

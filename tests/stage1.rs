@@ -114,7 +114,7 @@ fn annotated_dependency_heavy_theorems_parse_but_remain_unsupported() {
     let env = parse_env(
         r#"
 sort nat;
-sort wff;
+provable sort wff;
 term p (x: nat): wff;
 --| @saturation ltr
 theorem dep {x: nat} (q: wff x): $ p x $;
@@ -137,7 +137,7 @@ fn export_validation_ignores_unannotated_unsupported_theorems() {
     let env = parse_env(
         r#"
         sort nat;
-        sort wff;
+        provable sort wff;
         term eq (x y: nat): wff;
         term p (x: nat): wff;
         --| @relation nat eq eq_refl eq_trans eq_sym _
@@ -168,7 +168,7 @@ fn export_validation_rejects_annotated_unsupported_theorems() {
     let env = parse_env(
         r#"
         sort nat;
-        sort wff;
+        provable sort wff;
         term p (x: nat): wff;
         --| @saturation ltr
         theorem dep {x: nat} (q: wff x): $ p x $;

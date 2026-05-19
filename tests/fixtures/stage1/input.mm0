@@ -1,5 +1,5 @@
 sort bv64;
-sort wff;
+provable sort wff;
 
 term bv0: bv64;
 term bv_add (x y: bv64): bv64;

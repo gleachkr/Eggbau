@@ -127,7 +127,7 @@ fn saturation_ltr_with_hypotheses_is_rejected_by_export_validation() {
     let env = parse_env(
         r#"
 sort s;
-sort wff;
+provable sort wff;
 term eq (x y: s): wff;
 --| @relation s eq eq_refl eq_trans eq_sym _
 axiom eq_refl (x: s): $ eq x x $;
@@ -150,7 +150,7 @@ fn saturation_horn_with_relation_conclusion_is_rejected() {
     let env = parse_env(
         r#"
 sort s;
-sort wff;
+provable sort wff;
 term eq (x y: s): wff;
 term p (x: s): wff;
 --| @relation s eq eq_refl eq_trans eq_sym _
@@ -174,7 +174,7 @@ fn congruence_shape_mismatch_is_rejected() {
     let env = parse_env(
         r#"
 sort s;
-sort wff;
+provable sort wff;
 term eq (x y: s): wff;
 term f (x: s): s;
 term g (x: s): s;
@@ -199,7 +199,7 @@ fn relation_references_missing_theorem_is_rejected() {
     let env = parse_env(
         r#"
 sort s;
-sort wff;
+provable sort wff;
 term eq (x y: s): wff;
 --| @relation s eq eq_refl missing_trans eq_sym _
 axiom eq_refl (x: s): $ eq x x $;

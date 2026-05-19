@@ -4,7 +4,7 @@ use eggbau::mm0::parse_env;
 
 const LTR_INPUT: &str = r#"
 sort s;
-sort wff;
+provable sort wff;
 term f (x: s): s;
 term eq (x y: s): wff;
 --| @relation s eq eq_refl eq_trans eq_sym _
@@ -18,7 +18,7 @@ theorem target (x: s): $ eq (f x) x $;
 
 const RTL_INPUT: &str = r#"
 sort s;
-sort wff;
+provable sort wff;
 term pair (x y: s): s;
 term eq (x y: s): wff;
 --| @relation s eq eq_refl eq_trans eq_sym _
@@ -32,7 +32,7 @@ theorem target (x y: s): $ eq (pair y x) (pair x y) $;
 
 const BOTH_INPUT: &str = r#"
 sort s;
-sort wff;
+provable sort wff;
 term pair (x y: s): s;
 term eq (x y: s): wff;
 --| @relation s eq eq_refl eq_trans eq_sym _
@@ -46,7 +46,7 @@ theorem target (x y: s): $ eq (pair y x) (pair x y) $;
 
 const TRANS_INPUT: &str = r#"
 sort s;
-sort wff;
+provable sort wff;
 term f (x: s): s;
 term g (x: s): s;
 term eq (x y: s): wff;
@@ -63,7 +63,7 @@ theorem target (x: s): $ eq (f x) x $;
 
 const CONGR_INPUT: &str = r#"
 sort s;
-sort wff;
+provable sort wff;
 term f (x: s): s;
 term h (x: s): s;
 term eq (x y: s): wff;

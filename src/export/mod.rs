@@ -66,18 +66,22 @@ impl ExportEnv {
             .map(|sort| ExportSort {
                 source_name: sort.name.clone(),
                 egglog_name: egglog_sort_name(&sort.name),
+                provable: env.sort_is_provable(&sort.name),
             })
             .collect::<Vec<_>>();
 
         let terms = env
             .terms
             .iter()
-            .map(|term| ExportTerm {
-                source_name: term.name.clone(),
-                egglog_name: egglog_term_name(term),
-                input_sorts: term_input_sorts(term),
-                result_sort: term.result_sort.clone(),
-                kind: export_term_kind(term, &relation_by_term),
+            .map(|term| {
+                let kind = export_term_kind(env, term, &relation_by_term);
+                ExportTerm {
+                    source_name: term.name.clone(),
+                    egglog_name: egglog_term_name(term, kind),
+                    input_sorts: term_input_sorts(term),
+                    result_sort: term.result_sort.clone(),
+                    kind,
+                }
             })
             .collect::<Vec<_>>();
 
@@ -170,6 +174,8 @@ impl ExportEnv {
 pub struct ExportSort {
     pub source_name: String,
     pub egglog_name: String,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub provable: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -329,6 +335,10 @@ fn export_use_for_metadata(kind: MetadataKind) -> ExportUse {
         MetadataKind::Congruence => ExportUse::Congruence,
         MetadataKind::Saturation => ExportUse::Saturation,
     }
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 impl std::fmt::Display for ExportUse {
@@ -505,6 +515,7 @@ fn validate_expr_terms(
 
 struct TermIndex<'a> {
     terms: HashMap<&'a str, &'a TermDecl>,
+    provable_sorts: BTreeSet<String>,
 }
 
 impl<'a> TermIndex<'a> {
@@ -515,11 +526,29 @@ impl<'a> TermIndex<'a> {
                 .iter()
                 .map(|term| (term.name.as_str(), term))
                 .collect(),
+            provable_sorts: env
+                .sorts
+                .iter()
+                .filter(|sort| env.sort_is_provable(&sort.name))
+                .map(|sort| sort.name.clone())
+                .collect(),
         }
     }
 
     fn get(&self, name: &str) -> Option<&'a TermDecl> {
         self.terms.get(name).copied()
+    }
+
+    fn sort_is_provable(&self, sort: &str) -> bool {
+        self.provable_sorts.contains(sort)
+    }
+
+    fn egglog_term_name(&self, term: &TermDecl) -> String {
+        if self.sort_is_provable(&term.result_sort) {
+            egglog_relation_name(&term.name)
+        } else {
+            pascal_ident(&term.name)
+        }
     }
 }
 
@@ -693,11 +722,11 @@ fn fact_pattern(
         use_kind: ExportUse::Saturation,
         reason: format!("horn formula references undeclared predicate: {head}"),
     })?;
-    if term.result_sort != "wff" {
+    if !term_index.sort_is_provable(&term.result_sort) {
         return Err(ExportValidationError {
             theorem: theorem.name.clone(),
             use_kind: ExportUse::Saturation,
-            reason: format!("horn formula head is not a wff predicate: {head}"),
+            reason: format!("horn formula head does not have a provable sort: {head}"),
         });
     }
 
@@ -980,7 +1009,7 @@ fn render_egglog_term_inner(
                 use_kind: ExportUse::Saturation,
                 reason: format!("formula references undeclared atom: {name}"),
             })?;
-            Ok(render_call(&egglog_term_name(term), &[]))
+            Ok(render_call(&term_index.egglog_term_name(term), &[]))
         }
         MathExpr::App { head, args } => {
             let term = term_index.get(head).ok_or_else(|| ExportValidationError {
@@ -992,7 +1021,10 @@ fn render_egglog_term_inner(
                 .iter()
                 .map(|arg| render_egglog_term_inner(arg, theorem, term_index, binders))
                 .collect::<Result<Vec<_>, _>>()?;
-            Ok(render_call(&egglog_term_name(term), &rendered_args))
+            Ok(render_call(
+                &term_index.egglog_term_name(term),
+                &rendered_args,
+            ))
         }
     }
 }
@@ -1007,10 +1039,14 @@ fn render_math_expr(expr: &MathExpr) -> String {
     }
 }
 
-fn export_term_kind(term: &TermDecl, relation_by_term: &HashMap<String, String>) -> ExportTermKind {
+fn export_term_kind(
+    env: &Mm0Env,
+    term: &TermDecl,
+    relation_by_term: &HashMap<String, String>,
+) -> ExportTermKind {
     if relation_by_term.contains_key(&term.name) {
         ExportTermKind::RelationSymbol
-    } else if term.result_sort == "wff" {
+    } else if env.sort_is_provable(&term.result_sort) {
         ExportTermKind::FactRelation
     } else {
         ExportTermKind::Constructor
@@ -1032,8 +1068,8 @@ fn egglog_sort_name(name: &str) -> String {
     pascal_ident(name)
 }
 
-fn egglog_term_name(term: &TermDecl) -> String {
-    if term.result_sort == "wff" {
+fn egglog_term_name(term: &TermDecl, kind: ExportTermKind) -> String {
+    if kind == ExportTermKind::FactRelation {
         egglog_relation_name(&term.name)
     } else {
         pascal_ident(&term.name)
@@ -1097,7 +1133,7 @@ mod tests {
         let env = parse_env(
             r#"
 sort s;
-sort wff;
+provable sort wff;
 term z: s;
 term f (x: s): s;
 term eq (x y: s): wff;

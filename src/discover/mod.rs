@@ -594,7 +594,7 @@ mod tests {
     fn ignores_rewrite_metadata_for_discovery_authorization() {
         let input = r#"
 sort s;
-sort wff;
+provable sort wff;
 term eq (x y: s): wff;
 term z: s;
 term f (x: s): s;
@@ -616,7 +616,7 @@ axiom f_z (x: s): $ eq (f x) z $;
     fn validates_saturation_conversion_shape() {
         let input = r#"
 sort s;
-sort wff;
+provable sort wff;
 term p (x: s): wff;
 --| @saturation ltr
 theorem bad (x: s): $ p x $;
