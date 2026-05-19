@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::{EggbauError, discover, mm0, version_report};
+use crate::{EggbauError, discover, export, mm0, version_report};
 
 /// Run the eggbau command line using the provided argument iterator.
 pub fn run<I, S>(args: I) -> Result<String, EggbauError>
@@ -16,6 +16,7 @@ where
         Some("--version") | Some("-V") | Some("version") => Ok(version_report()),
         Some("discover") => run_discover(args),
         Some("dump-env") => run_dump_env(args),
+        Some("emit-egglog") => run_emit_egglog(args),
         Some(other) => Err(EggbauError::UnsupportedCommand(other.to_owned())),
     }
 }
@@ -66,6 +67,28 @@ fn run_dump_env(mut args: impl Iterator<Item = String>) -> Result<String, Eggbau
     Ok(json + "\n")
 }
 
+fn run_emit_egglog(mut args: impl Iterator<Item = String>) -> Result<String, EggbauError> {
+    let file = args.next().ok_or_else(|| {
+        EggbauError::UnsupportedCommand("emit-egglog requires an MM0 input path".to_owned())
+    })?;
+    let mut scheduled = false;
+    for arg in args {
+        match arg.as_str() {
+            "--scheduled" => scheduled = true,
+            other => return Err(EggbauError::UnsupportedCommand(other.to_owned())),
+        }
+    }
+
+    let input = read_mm0(&file)?;
+    let env = mm0::parse_env(&input)?;
+    let export_env = export::ExportEnv::from_mm0(&env)?;
+    if scheduled {
+        Ok(export::render_egglog_with_schedule(&export_env))
+    } else {
+        Ok(export::render_egglog(&export_env))
+    }
+}
+
 fn read_mm0(file: &str) -> Result<String, EggbauError> {
     std::fs::read_to_string(file).map_err(|source| EggbauError::ReadFile {
         path: file.to_owned(),
@@ -81,8 +104,9 @@ pub fn help_text() -> String {
         "  eggbau --version",
         "  eggbau discover FILE.mm0 [--suggest-annotations]",
         "  eggbau dump-env FILE.mm0 [--theorem THEOREM]",
+        "  eggbau emit-egglog FILE.mm0 [--scheduled]",
         "",
-        "Stage 2 validates metadata and suggests saturation annotations.",
+        "Stage 3 builds a validated ExportEnv and emits egglog text.",
     ]
     .join("\n")
         + "\n"
