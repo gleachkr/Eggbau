@@ -1,11 +1,11 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use thiserror::Error;
 
 use super::env::{
     AssertionKind, BinderDecl, CongruenceAnnotation, Formula, MathExpr, MetadataIndex,
-    Mm0Diagnostic, Mm0Env, RelationAnnotation, SaturationAnnotation, SaturationMode, SortDecl,
-    TermDecl, TheoremDecl,
+    Mm0Diagnostic, Mm0Env, NotationAssociativity, NotationDecl, NotationItem, NotationKind,
+    RelationAnnotation, SaturationAnnotation, SaturationMode, SortDecl, TermDecl, TheoremDecl,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -103,18 +103,16 @@ fn parse_statement(
     }
 
     if trimmed.starts_with("theorem ") || trimmed.starts_with("axiom ") {
-        let theorem = parse_assertion_decl(trimmed, statement.line)?;
+        let theorem = parse_assertion_decl(trimmed, statement.line, env)?;
         ensure_unique_decl(&theorem.name, names, statement.line)?;
         attach_pending_metadata(&theorem, pending, &mut env.metadata);
         env.theorems.push(theorem);
         return Ok(());
     }
 
-    if is_notation_directive(trimmed) {
-        env.diagnostics.push(Mm0Diagnostic {
-            line: statement.line,
-            message: format!("unsupported notation directive ignored by eggbau: {trimmed}"),
-        });
+    if let Some(notation) = parse_notation_decl(trimmed, statement.line)? {
+        require_no_pending(pending, statement.line, "notation directive")?;
+        env.notations.push(notation);
         return Ok(());
     }
 
@@ -160,7 +158,11 @@ fn parse_term_decl(text: &str, line: usize) -> Result<TermDecl, Mm0ParseError> {
     })
 }
 
-fn parse_assertion_decl(text: &str, line: usize) -> Result<TheoremDecl, Mm0ParseError> {
+fn parse_assertion_decl(
+    text: &str,
+    line: usize,
+    env: &Mm0Env,
+) -> Result<TheoremDecl, Mm0ParseError> {
     let (kind, rest) = if let Some(rest) = text.strip_prefix("theorem ") {
         (AssertionKind::Theorem, rest)
     } else {
@@ -176,7 +178,8 @@ fn parse_assertion_decl(text: &str, line: usize) -> Result<TheoremDecl, Mm0Parse
     let (head, body) = rest.split_at(colon);
     let body = body[1..].trim();
     let (name, binders, mut unsupported_reason) = parse_decl_head(head, line)?;
-    let formulas = parse_formula_sequence(body);
+    let context = FormulaContext::from_env(env);
+    let formulas = parse_formula_sequence(body, &context);
 
     let Some((conclusion, hypotheses)) = formulas.split_last() else {
         return Err(Mm0ParseError::new(
@@ -187,9 +190,13 @@ fn parse_assertion_decl(text: &str, line: usize) -> Result<TheoremDecl, Mm0Parse
 
     let hypotheses = hypotheses.to_vec();
     let conclusion = conclusion.clone();
-    if conclusion.unsupported_reason.is_some() && unsupported_reason.is_none() {
+    if formulas
+        .iter()
+        .any(|formula| formula.unsupported_reason.is_some())
+        && unsupported_reason.is_none()
+    {
         unsupported_reason =
-            Some("conclusion formula is outside the supported prefix fragment".to_owned());
+            Some("one or more formulas are outside eggbau's supported fragment".to_owned());
     }
 
     Ok(TheoremDecl {
@@ -288,7 +295,7 @@ fn parse_visible_binders(
     Ok((binders, unsupported_reason))
 }
 
-fn parse_formula_sequence(body: &str) -> Vec<Formula> {
+fn parse_formula_sequence(body: &str, context: &FormulaContext) -> Vec<Formula> {
     let mut formulas = Vec::new();
     let mut in_math = false;
     let mut start = 0;
@@ -296,7 +303,7 @@ fn parse_formula_sequence(body: &str) -> Vec<Formula> {
     for (idx, ch) in body.char_indices() {
         if ch == '$' {
             if in_math {
-                formulas.push(parse_formula(&body[start..idx]));
+                formulas.push(parse_formula(&body[start..idx], context));
             } else {
                 start = idx + 1;
             }
@@ -305,15 +312,15 @@ fn parse_formula_sequence(body: &str) -> Vec<Formula> {
     }
 
     if formulas.is_empty() && !body.trim().is_empty() {
-        formulas.push(parse_formula(body));
+        formulas.push(parse_formula(body, context));
     }
 
     formulas
 }
 
-fn parse_formula(source: &str) -> Formula {
+fn parse_formula(source: &str, context: &FormulaContext) -> Formula {
     let source = normalize_ws(source.trim());
-    let (expr, unsupported_reason) = parse_math_expr(&source)
+    let (expr, unsupported_reason) = parse_math_expr(&source, context)
         .map(|expr| (Some(expr), None))
         .unwrap_or_else(|reason| (None, Some(reason)));
 
@@ -582,29 +589,573 @@ fn parse_sort_decl(text: &str, line: usize) -> Result<Option<String>, Mm0ParseEr
     Ok(Some(name.to_owned()))
 }
 
-fn is_notation_directive(text: &str) -> bool {
-    ["infixl ", "infixr ", "prefix ", "coercion ", "notation "]
-        .iter()
-        .any(|prefix| text.starts_with(prefix))
+fn parse_notation_decl(text: &str, line: usize) -> Result<Option<NotationDecl>, Mm0ParseError> {
+    if let Some(rest) = text.strip_prefix("delimiter ") {
+        let tokens = extract_math_tokens(rest);
+        let items = tokens
+            .iter()
+            .map(|token| NotationItem::Const {
+                token: token.clone(),
+                precedence: None,
+            })
+            .collect();
+        return Ok(Some(NotationDecl {
+            kind: NotationKind::Delimiter,
+            term: None,
+            tokens,
+            precedence: None,
+            associativity: None,
+            items,
+            source: text.to_owned(),
+        }));
+    }
+
+    for (prefix, kind, assoc) in [
+        ("prefix ", NotationKind::Prefix, None),
+        (
+            "infixl ",
+            NotationKind::Infixl,
+            Some(NotationAssociativity::Left),
+        ),
+        (
+            "infixr ",
+            NotationKind::Infixr,
+            Some(NotationAssociativity::Right),
+        ),
+    ] {
+        if let Some(rest) = text.strip_prefix(prefix) {
+            let (term, rest) = rest
+                .split_once(':')
+                .ok_or_else(|| Mm0ParseError::new(line, "notation directive is missing ':'"))?;
+            let term = term.trim();
+            ensure_simple_ident(term, line)?;
+            let tokens = extract_math_tokens(rest);
+            let Some(token) = tokens.first() else {
+                return Err(Mm0ParseError::new(
+                    line,
+                    "notation directive is missing a token",
+                ));
+            };
+            let precedence = parse_precedence(rest);
+            return Ok(Some(NotationDecl {
+                kind,
+                term: Some(term.to_owned()),
+                tokens: vec![token.clone()],
+                precedence: precedence.clone(),
+                associativity: assoc,
+                items: vec![NotationItem::Const {
+                    token: token.clone(),
+                    precedence,
+                }],
+                source: text.to_owned(),
+            }));
+        }
+    }
+
+    if let Some(rest) = text.strip_prefix("coercion ") {
+        let (term, _) = rest
+            .split_once(':')
+            .ok_or_else(|| Mm0ParseError::new(line, "coercion directive is missing ':'"))?;
+        let term = term.trim();
+        ensure_simple_ident(term, line)?;
+        return Ok(Some(NotationDecl {
+            kind: NotationKind::Coercion,
+            term: Some(term.to_owned()),
+            tokens: Vec::new(),
+            precedence: None,
+            associativity: None,
+            items: Vec::new(),
+            source: text.to_owned(),
+        }));
+    }
+
+    if let Some(rest) = text.strip_prefix("notation ") {
+        let name_end = rest
+            .char_indices()
+            .find(|(_, ch)| ch.is_whitespace() || *ch == '(' || *ch == '{' || *ch == ':')
+            .map_or(rest.len(), |(idx, _)| idx);
+        let term = rest[..name_end].trim();
+        ensure_simple_ident(term, line)?;
+        let Some((_, rhs)) = text.split_once('=') else {
+            return Err(Mm0ParseError::new(
+                line,
+                "notation directive is missing '='",
+            ));
+        };
+        let (rhs, precedence, associativity) = split_general_notation_rhs(rhs, line)?;
+        let items = parse_general_notation_items(rhs, line)?;
+        let tokens = items
+            .iter()
+            .filter_map(|item| match item {
+                NotationItem::Const { token, .. } => Some(token.clone()),
+                NotationItem::Var { .. } => None,
+            })
+            .collect();
+        return Ok(Some(NotationDecl {
+            kind: NotationKind::General,
+            term: Some(term.to_owned()),
+            tokens,
+            precedence,
+            associativity,
+            items,
+            source: text.to_owned(),
+        }));
+    }
+
+    Ok(None)
+}
+
+fn split_general_notation_rhs(
+    rhs: &str,
+    line: usize,
+) -> Result<(&str, Option<String>, Option<NotationAssociativity>), Mm0ParseError> {
+    let Some(colon) = find_general_notation_prec_colon(rhs) else {
+        return Ok((rhs.trim(), None, None));
+    };
+    let (literals, suffix) = rhs.split_at(colon);
+    let mut parts = suffix[1..].split_whitespace();
+    let Some(precedence) = parts.next() else {
+        return Err(Mm0ParseError::new(
+            line,
+            "general notation precedence is missing",
+        ));
+    };
+    let associativity = match parts.next() {
+        Some("lassoc") => Some(NotationAssociativity::Left),
+        Some("rassoc") => Some(NotationAssociativity::Right),
+        Some(other) => {
+            return Err(Mm0ParseError::new(
+                line,
+                format!("unknown general notation associativity: {other}"),
+            ));
+        }
+        None => None,
+    };
+    Ok((literals.trim(), Some(precedence.to_owned()), associativity))
+}
+
+fn find_general_notation_prec_colon(text: &str) -> Option<usize> {
+    let mut in_math = false;
+    let mut depth = 0_u32;
+    for (idx, ch) in text.char_indices() {
+        match ch {
+            '$' => in_math = !in_math,
+            '(' if !in_math => depth += 1,
+            ')' if !in_math => depth = depth.saturating_sub(1),
+            ':' if !in_math && depth == 0 => return Some(idx),
+            _ => {}
+        }
+    }
+    None
+}
+
+fn parse_general_notation_items(
+    text: &str,
+    line: usize,
+) -> Result<Vec<NotationItem>, Mm0ParseError> {
+    let mut items = Vec::new();
+    let mut chars = text.char_indices().peekable();
+    while let Some((idx, ch)) = chars.peek().copied() {
+        if ch.is_whitespace() {
+            chars.next();
+            continue;
+        }
+        if ch == '(' {
+            chars.next();
+            skip_ws(&mut chars);
+            let Some((_, '$')) = chars.peek().copied() else {
+                return Err(Mm0ParseError::new(
+                    line,
+                    "notation constant must start with '$'",
+                ));
+            };
+            chars.next();
+            let start = chars.peek().map_or(idx + ch.len_utf8(), |(idx, _)| *idx);
+            let Some((end, _)) = chars.by_ref().find(|(_, next)| *next == '$') else {
+                return Err(Mm0ParseError::new(line, "unterminated notation constant"));
+            };
+            let token = text[start..end].trim().to_owned();
+            skip_ws(&mut chars);
+            let precedence = if chars.peek().is_some_and(|(_, next)| *next == ':') {
+                chars.next();
+                skip_ws(&mut chars);
+                let start = chars.peek().map_or(end, |(idx, _)| *idx);
+                let mut finish = start;
+                while let Some((next_idx, next)) = chars.peek().copied() {
+                    if next.is_whitespace() || next == ')' {
+                        break;
+                    }
+                    chars.next();
+                    finish = next_idx + next.len_utf8();
+                }
+                Some(text[start..finish].to_owned())
+            } else {
+                None
+            };
+            skip_ws(&mut chars);
+            match chars.next() {
+                Some((_, ')')) => {}
+                _ => {
+                    return Err(Mm0ParseError::new(line, "notation constant is missing ')'"));
+                }
+            }
+            items.push(NotationItem::Const { token, precedence });
+            continue;
+        }
+
+        if ch == '_' || ch.is_ascii_alphabetic() {
+            let start = idx;
+            let mut end = idx + ch.len_utf8();
+            chars.next();
+            while let Some((next_idx, next)) = chars.peek().copied() {
+                if next == '_' || next.is_ascii_alphanumeric() {
+                    chars.next();
+                    end = next_idx + next.len_utf8();
+                } else {
+                    break;
+                }
+            }
+            items.push(NotationItem::Var {
+                name: text[start..end].to_owned(),
+            });
+            continue;
+        }
+
+        return Err(Mm0ParseError::new(
+            line,
+            format!("unexpected token in notation pattern: {ch}"),
+        ));
+    }
+    Ok(items)
+}
+
+fn skip_ws(chars: &mut std::iter::Peekable<std::str::CharIndices<'_>>) {
+    while chars.peek().is_some_and(|(_, ch)| ch.is_whitespace()) {
+        chars.next();
+    }
+}
+
+fn extract_math_tokens(text: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut in_math = false;
+    let mut start = 0;
+    for (idx, ch) in text.char_indices() {
+        if ch == '$' {
+            if in_math {
+                let token = text[start..idx].trim();
+                if !token.is_empty() {
+                    tokens.push(token.to_owned());
+                }
+            } else {
+                start = idx + 1;
+            }
+            in_math = !in_math;
+        }
+    }
+    tokens
+}
+
+fn parse_precedence(text: &str) -> Option<String> {
+    text.split_once("prec")
+        .and_then(|(_, rest)| rest.split_whitespace().next())
+        .map(ToOwned::to_owned)
 }
 
 fn normalize_ws(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-enum MathToken {
-    Ident(String),
-    LParen,
-    RParen,
+#[derive(Clone, Debug)]
+struct FormulaContext {
+    terms: HashMap<String, usize>,
+    prefixes: HashMap<String, PrefixNotation>,
+    infixes: HashMap<String, InfixNotation>,
+    prefix_generals: HashMap<String, Vec<GeneralNotation>>,
+    infix_generals: HashMap<String, Vec<GeneralNotation>>,
 }
 
-fn parse_math_expr(source: &str) -> Result<MathExpr, String> {
+impl FormulaContext {
+    fn from_env(env: &Mm0Env) -> Self {
+        let terms = env
+            .terms
+            .iter()
+            .map(|term| (term.name.clone(), term_arity(term)))
+            .collect::<HashMap<_, _>>();
+        let term_args = env
+            .terms
+            .iter()
+            .map(|term| {
+                let args = term
+                    .binders
+                    .iter()
+                    .map(|binder| binder.name.clone())
+                    .collect::<Vec<_>>();
+                (term.name.clone(), args)
+            })
+            .collect::<HashMap<_, _>>();
+        let mut prefixes = HashMap::new();
+        let mut infixes = HashMap::new();
+        let mut prefix_generals: HashMap<String, Vec<GeneralNotation>> = HashMap::new();
+        let mut infix_generals: HashMap<String, Vec<GeneralNotation>> = HashMap::new();
+
+        for notation in &env.notations {
+            let Some(term) = notation.term.clone() else {
+                continue;
+            };
+            let arity = terms.get(&term).copied().unwrap_or(0);
+            match notation.kind {
+                NotationKind::Prefix => {
+                    let Some(token) = notation.tokens.first().cloned() else {
+                        continue;
+                    };
+                    prefixes.insert(token, PrefixNotation { term, arity });
+                }
+                NotationKind::Infixl => {
+                    let Some(token) = notation.tokens.first().cloned() else {
+                        continue;
+                    };
+                    infixes.insert(
+                        token,
+                        InfixNotation {
+                            term,
+                            precedence: notation_precedence(notation),
+                            associativity: Associativity::Left,
+                        },
+                    );
+                }
+                NotationKind::Infixr => {
+                    let Some(token) = notation.tokens.first().cloned() else {
+                        continue;
+                    };
+                    infixes.insert(
+                        token,
+                        InfixNotation {
+                            term,
+                            precedence: notation_precedence(notation),
+                            associativity: Associativity::Right,
+                        },
+                    );
+                }
+                NotationKind::General => {
+                    let Some(general) = general_notation_from_decl(notation, &term_args) else {
+                        continue;
+                    };
+                    match general.lead.clone() {
+                        GeneralNotationLead::Prefix { token } => {
+                            prefix_generals.entry(token).or_default().push(general);
+                        }
+                        GeneralNotationLead::Infix { token, .. } => {
+                            infix_generals.entry(token).or_default().push(general);
+                        }
+                    }
+                }
+                NotationKind::Delimiter | NotationKind::Coercion => {}
+            }
+        }
+
+        Self {
+            terms,
+            prefixes,
+            infixes,
+            prefix_generals,
+            infix_generals,
+        }
+    }
+}
+
+fn term_arity(term: &TermDecl) -> usize {
+    if term.input_sorts.is_empty() {
+        term.binders.len()
+    } else {
+        term.input_sorts.len()
+    }
+}
+
+fn notation_precedence(notation: &NotationDecl) -> u32 {
+    notation
+        .precedence
+        .as_deref()
+        .and_then(parse_precedence_value)
+        .unwrap_or(100)
+}
+
+fn parse_precedence_value(precedence: &str) -> Option<u32> {
+    match precedence {
+        "max" => Some(u32::MAX),
+        token => token.parse::<u32>().ok(),
+    }
+}
+
+fn general_notation_from_decl(
+    notation: &NotationDecl,
+    term_args: &HashMap<String, Vec<String>>,
+) -> Option<GeneralNotation> {
+    let term = notation.term.clone()?;
+    if notation.items.is_empty() {
+        return None;
+    }
+    let args = term_args
+        .get(&term)
+        .filter(|args| !args.is_empty())
+        .cloned()
+        .unwrap_or_else(|| visible_names_from_notation_head(&notation.source));
+    let pattern = notation
+        .items
+        .iter()
+        .map(|item| match item {
+            NotationItem::Const { token, precedence } => GeneralPatternItem::Literal {
+                token: token.clone(),
+                precedence: precedence
+                    .as_deref()
+                    .and_then(parse_precedence_value)
+                    .unwrap_or(100),
+            },
+            NotationItem::Var { name } => GeneralPatternItem::Variable(name.clone()),
+        })
+        .collect::<Vec<_>>();
+    let lead = general_notation_lead(notation)?;
+    Some(GeneralNotation {
+        term,
+        pattern,
+        args,
+        lead,
+        precedence: notation_precedence(notation),
+        associativity: notation.associativity,
+    })
+}
+
+fn general_notation_lead(notation: &NotationDecl) -> Option<GeneralNotationLead> {
+    match notation.items.as_slice() {
+        [NotationItem::Const { token, .. }, ..] => Some(GeneralNotationLead::Prefix {
+            token: token.clone(),
+        }),
+        [
+            NotationItem::Var { name },
+            NotationItem::Const { token, .. },
+            ..,
+        ] => Some(GeneralNotationLead::Infix {
+            lhs: name.clone(),
+            token: token.clone(),
+        }),
+        _ => None,
+    }
+}
+
+fn visible_names_from_notation_head(source: &str) -> Vec<String> {
+    let Some(rest) = source.strip_prefix("notation ") else {
+        return Vec::new();
+    };
+    let head = rest.split_once('=').map_or(rest, |(head, _)| head);
+    let Some(colon) = find_top_level_colon(head) else {
+        return Vec::new();
+    };
+    let head = &head[..colon];
+    let mut names = Vec::new();
+    let mut idx = 0;
+    while let Some(start_rel) = head[idx..].find('(') {
+        let start = idx + start_rel;
+        let Some(end_rel) = head[start + 1..].find(')') else {
+            break;
+        };
+        let end = start + 1 + end_rel;
+        if let Some((raw_names, _)) = head[start + 1..end].split_once(':') {
+            names.extend(
+                raw_names
+                    .split_whitespace()
+                    .map(|name| name.strip_prefix('.').unwrap_or(name).to_owned()),
+            );
+        }
+        idx = end + 1;
+    }
+    names
+}
+
+#[derive(Clone, Debug)]
+struct PrefixNotation {
+    term: String,
+    arity: usize,
+}
+
+#[derive(Clone, Debug)]
+struct InfixNotation {
+    term: String,
+    precedence: u32,
+    associativity: Associativity,
+}
+
+#[derive(Clone, Debug)]
+struct GeneralNotation {
+    term: String,
+    pattern: Vec<GeneralPatternItem>,
+    args: Vec<String>,
+    lead: GeneralNotationLead,
+    precedence: u32,
+    associativity: Option<NotationAssociativity>,
+}
+
+#[derive(Clone, Debug)]
+enum GeneralNotationLead {
+    Prefix { token: String },
+    Infix { lhs: String, token: String },
+}
+
+impl GeneralNotation {
+    fn variable_precedence(&self, idx: usize) -> u32 {
+        if let Some(next) = self.pattern[idx + 1..].iter().find_map(|item| match item {
+            GeneralPatternItem::Literal { precedence, .. } => Some(*precedence),
+            GeneralPatternItem::Variable(_) => None,
+        }) {
+            return next.saturating_add(1);
+        }
+        if matches!(self.lead, GeneralNotationLead::Infix { .. }) {
+            return match self.associativity {
+                Some(NotationAssociativity::Right) => self.precedence,
+                Some(NotationAssociativity::Left) | None => self.precedence.saturating_add(1),
+            };
+        }
+        0
+    }
+}
+
+#[derive(Clone, Debug)]
+enum GeneralPatternItem {
+    Literal { token: String, precedence: u32 },
+    Variable(String),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Associativity {
+    Left,
+    Right,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum MathToken {
+    Atom(String),
+    Symbol(String),
+    LParen,
+    RParen,
+    LBrace,
+    RBrace,
+    Comma,
+}
+
+fn parse_math_expr(source: &str, context: &FormulaContext) -> Result<MathExpr, String> {
     let tokens = tokenize_math(source)?;
     if tokens.is_empty() {
         return Err("empty formula".to_owned());
     }
-    parse_math_sequence(&tokens)
+    let mut parser = MathParser {
+        tokens: &tokens,
+        pos: 0,
+        context,
+    };
+    let expr = parser.parse_expr(0)?;
+    if parser.pos == tokens.len() {
+        Ok(expr)
+    } else {
+        Err("formula has trailing tokens after parsed expression".to_owned())
+    }
 }
 
 fn tokenize_math(source: &str) -> Result<Vec<MathToken>, String> {
@@ -617,72 +1168,303 @@ fn tokenize_math(source: &str) -> Result<Vec<MathToken>, String> {
         match ch {
             '(' => tokens.push(MathToken::LParen),
             ')' => tokens.push(MathToken::RParen),
-            _ if ch == '_' || ch.is_ascii_alphabetic() => {
+            '{' => tokens.push(MathToken::LBrace),
+            '}' => tokens.push(MathToken::RBrace),
+            ',' => tokens.push(MathToken::Comma),
+            _ if is_atom_start(ch) => {
                 let mut end = idx + ch.len_utf8();
                 while let Some((next_idx, next)) = chars.peek().copied() {
-                    if next == '_' || next.is_ascii_alphanumeric() {
+                    if is_atom_continue(next) {
                         chars.next();
                         end = next_idx + next.len_utf8();
                     } else {
                         break;
                     }
                 }
-                tokens.push(MathToken::Ident(source[idx..end].to_owned()));
+                if chars.peek().is_some_and(|(_, next)| *next == '.') {
+                    let (dot_idx, dot) = chars.next().expect("peeked dot");
+                    end = dot_idx + dot.len_utf8();
+                }
+                tokens.push(MathToken::Atom(source[idx..end].to_owned()));
             }
             _ => {
-                return Err(format!("formula uses unsupported notation token '{ch}'"));
+                let mut end = idx + ch.len_utf8();
+                while let Some((next_idx, next)) = chars.peek().copied() {
+                    if next.is_whitespace()
+                        || matches!(next, '(' | ')' | '{' | '}' | ',')
+                        || is_atom_start(next)
+                    {
+                        break;
+                    }
+                    chars.next();
+                    end = next_idx + next.len_utf8();
+                }
+                tokens.push(MathToken::Symbol(source[idx..end].to_owned()));
             }
         }
     }
     Ok(tokens)
 }
 
-fn parse_math_sequence(tokens: &[MathToken]) -> Result<MathExpr, String> {
-    let mut idx = 0;
-    let mut items = Vec::new();
-    while idx < tokens.len() {
-        items.push(parse_math_item(tokens, &mut idx)?);
+fn is_atom_start(ch: char) -> bool {
+    ch == '_' || ch.is_ascii_alphabetic() || ch.is_ascii_digit()
+}
+
+fn is_atom_continue(ch: char) -> bool {
+    ch == '_' || ch.is_ascii_alphanumeric()
+}
+
+struct MathParser<'a> {
+    tokens: &'a [MathToken],
+    pos: usize,
+    context: &'a FormulaContext,
+}
+
+impl MathParser<'_> {
+    fn parse_expr(&mut self, min_precedence: u32) -> Result<MathExpr, String> {
+        let mut lhs = self.parse_prefix_or_application()?;
+
+        loop {
+            let Some(token) = self.peek_token_string() else {
+                break;
+            };
+            if let Some(infix) = self.context.infixes.get(&token) {
+                if infix.precedence < min_precedence {
+                    break;
+                }
+                self.pos += 1;
+                let rhs_precedence = match infix.associativity {
+                    Associativity::Left => infix.precedence.saturating_add(1),
+                    Associativity::Right => infix.precedence,
+                };
+                let rhs = self.parse_expr(rhs_precedence)?;
+                lhs = MathExpr::App {
+                    head: infix.term.clone(),
+                    args: vec![lhs, rhs],
+                };
+                continue;
+            }
+
+            let Some(generals) = self.context.infix_generals.get(&token).cloned() else {
+                break;
+            };
+            let mut matched = None;
+            for notation in generals {
+                if notation.precedence < min_precedence {
+                    continue;
+                }
+                let start = self.pos;
+                match self.match_infix_general_notation(&notation, lhs.clone())? {
+                    Some(expr) => {
+                        matched = Some(expr);
+                        break;
+                    }
+                    None => self.pos = start,
+                }
+            }
+            let Some(expr) = matched else {
+                break;
+            };
+            lhs = expr;
+        }
+
+        Ok(lhs)
     }
-    match items.as_slice() {
-        [] => Err("empty formula".to_owned()),
-        [one] => Ok(one.clone()),
-        [MathExpr::Atom { name }, args @ ..] => Ok(MathExpr::App {
-            head: name.clone(),
-            args: args.to_vec(),
-        }),
-        _ => Err("formula is not a prefix application".to_owned()),
+
+    fn parse_prefix_or_application(&mut self) -> Result<MathExpr, String> {
+        let mut expr = if let Some(expr) = self.try_parse_prefix_general_notation()? {
+            expr
+        } else if let Some(token) = self.peek_notation_token() {
+            if let Some(prefix) = self.context.prefixes.get(token).cloned() {
+                self.pos += 1;
+                let args = (0..prefix.arity)
+                    .map(|_| self.parse_prefix_or_application())
+                    .collect::<Result<Vec<_>, _>>()?;
+                if args.is_empty() {
+                    MathExpr::Atom { name: prefix.term }
+                } else {
+                    MathExpr::App {
+                        head: prefix.term,
+                        args,
+                    }
+                }
+            } else {
+                self.parse_primary()?
+            }
+        } else {
+            self.parse_primary()?
+        };
+
+        if let MathExpr::Atom { name } = &expr {
+            if let Some(arity) = self.context.terms.get(name).copied() {
+                if arity > 0 && self.next_starts_argument() {
+                    let head = name.clone();
+                    let args = (0..arity)
+                        .map(|_| self.parse_prefix_or_application())
+                        .collect::<Result<Vec<_>, _>>()?;
+                    expr = MathExpr::App { head, args };
+                }
+            }
+        }
+
+        Ok(expr)
+    }
+
+    fn parse_primary(&mut self) -> Result<MathExpr, String> {
+        let Some(token) = self.tokens.get(self.pos) else {
+            return Err("unexpected end of formula".to_owned());
+        };
+        match token {
+            MathToken::Atom(name) | MathToken::Symbol(name) => {
+                self.pos += 1;
+                Ok(MathExpr::Atom { name: name.clone() })
+            }
+            MathToken::LParen => {
+                self.pos += 1;
+                let expr = self.parse_expr(0)?;
+                match self.tokens.get(self.pos) {
+                    Some(MathToken::RParen) => {
+                        self.pos += 1;
+                        Ok(expr)
+                    }
+                    _ => Err("unclosed parenthesis in formula".to_owned()),
+                }
+            }
+            MathToken::LBrace => Err("formula uses unknown brace notation".to_owned()),
+            MathToken::RParen => Err("unmatched ')' in formula".to_owned()),
+            MathToken::RBrace | MathToken::Comma => {
+                Err("formula uses unsupported aggregate notation".to_owned())
+            }
+        }
+    }
+
+    fn try_parse_prefix_general_notation(&mut self) -> Result<Option<MathExpr>, String> {
+        let Some(token) = self.peek_token_string() else {
+            return Ok(None);
+        };
+        let Some(generals) = self.context.prefix_generals.get(&token).cloned() else {
+            return Ok(None);
+        };
+        for notation in generals {
+            let start = self.pos;
+            match self.match_prefix_general_notation(&notation)? {
+                Some(expr) => return Ok(Some(expr)),
+                None => self.pos = start,
+            }
+        }
+        Ok(None)
+    }
+
+    fn match_prefix_general_notation(
+        &mut self,
+        notation: &GeneralNotation,
+    ) -> Result<Option<MathExpr>, String> {
+        let captures = HashMap::new();
+        self.match_general_notation_from(notation, 0, captures)
+    }
+
+    fn match_infix_general_notation(
+        &mut self,
+        notation: &GeneralNotation,
+        lhs: MathExpr,
+    ) -> Result<Option<MathExpr>, String> {
+        let GeneralNotationLead::Infix { lhs: lhs_name, .. } = &notation.lead else {
+            return Ok(None);
+        };
+        let Some(GeneralPatternItem::Literal { token, .. }) = notation.pattern.get(1) else {
+            return Ok(None);
+        };
+        if self.peek_token_string().as_deref() != Some(token.as_str()) {
+            return Ok(None);
+        }
+        self.pos += 1;
+        let mut captures = HashMap::new();
+        captures.insert(lhs_name.clone(), lhs);
+        self.match_general_notation_from(notation, 2, captures)
+    }
+
+    fn match_general_notation_from(
+        &mut self,
+        notation: &GeneralNotation,
+        start_idx: usize,
+        mut captures: HashMap<String, MathExpr>,
+    ) -> Result<Option<MathExpr>, String> {
+        for idx in start_idx..notation.pattern.len() {
+            match &notation.pattern[idx] {
+                GeneralPatternItem::Literal { token, .. } => {
+                    if self.peek_token_string().as_deref() != Some(token.as_str()) {
+                        return Ok(None);
+                    }
+                    self.pos += 1;
+                }
+                GeneralPatternItem::Variable(name) => {
+                    let precedence = notation.variable_precedence(idx);
+                    let expr = self.parse_expr(precedence)?;
+                    captures.insert(name.clone(), expr);
+                }
+            }
+        }
+
+        let args = notation
+            .args
+            .iter()
+            .map(|name| {
+                captures
+                    .get(name)
+                    .cloned()
+                    .ok_or_else(|| format!("notation pattern did not bind {name}"))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        if args.is_empty() {
+            Ok(Some(MathExpr::Atom {
+                name: notation.term.clone(),
+            }))
+        } else {
+            Ok(Some(MathExpr::App {
+                head: notation.term.clone(),
+                args,
+            }))
+        }
+    }
+
+    fn peek_notation_token(&self) -> Option<&str> {
+        match self.tokens.get(self.pos)? {
+            MathToken::Atom(token) | MathToken::Symbol(token) => Some(token),
+            MathToken::LParen
+            | MathToken::RParen
+            | MathToken::LBrace
+            | MathToken::RBrace
+            | MathToken::Comma => None,
+        }
+    }
+
+    fn peek_token_string(&self) -> Option<String> {
+        token_string(self.tokens.get(self.pos)?)
+    }
+
+    fn next_starts_argument(&self) -> bool {
+        match self.tokens.get(self.pos) {
+            Some(MathToken::Atom(_)) | Some(MathToken::LParen) => true,
+            Some(MathToken::LBrace) => self.context.prefix_generals.contains_key("{"),
+            Some(MathToken::Symbol(token)) => {
+                self.context.prefixes.contains_key(token)
+                    || self.context.prefix_generals.contains_key(token)
+            }
+            Some(MathToken::RParen) | Some(MathToken::RBrace) | Some(MathToken::Comma) | None => {
+                false
+            }
+        }
     }
 }
 
-fn parse_math_item(tokens: &[MathToken], idx: &mut usize) -> Result<MathExpr, String> {
-    match tokens.get(*idx) {
-        Some(MathToken::Ident(name)) => {
-            *idx += 1;
-            Ok(MathExpr::Atom { name: name.clone() })
-        }
-        Some(MathToken::LParen) => {
-            *idx += 1;
-            let start = *idx;
-            let mut depth = 1_u32;
-            while *idx < tokens.len() {
-                match tokens[*idx] {
-                    MathToken::LParen => depth += 1,
-                    MathToken::RParen => {
-                        depth -= 1;
-                        if depth == 0 {
-                            let expr = parse_math_sequence(&tokens[start..*idx])?;
-                            *idx += 1;
-                            return Ok(expr);
-                        }
-                    }
-                    MathToken::Ident(_) => {}
-                }
-                *idx += 1;
-            }
-            Err("unclosed parenthesis in formula".to_owned())
-        }
-        Some(MathToken::RParen) => Err("unmatched ')' in formula".to_owned()),
-        None => Err("unexpected end of formula".to_owned()),
+fn token_string(token: &MathToken) -> Option<String> {
+    match token {
+        MathToken::Atom(token) | MathToken::Symbol(token) => Some(token.clone()),
+        MathToken::LParen => Some("(".to_owned()),
+        MathToken::RParen => Some(")".to_owned()),
+        MathToken::LBrace => Some("{".to_owned()),
+        MathToken::RBrace => Some("}".to_owned()),
+        MathToken::Comma => Some(",".to_owned()),
     }
 }
 

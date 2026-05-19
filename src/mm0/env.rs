@@ -7,6 +7,7 @@ pub struct Mm0Env {
     pub sorts: Vec<SortDecl>,
     pub terms: Vec<TermDecl>,
     pub theorems: Vec<TheoremDecl>,
+    pub notations: Vec<NotationDecl>,
     pub metadata: MetadataIndex,
     pub diagnostics: Vec<Mm0Diagnostic>,
 }
@@ -77,6 +78,15 @@ pub enum MathExpr {
     App { head: String, args: Vec<MathExpr> },
 }
 
+impl MathExpr {
+    pub fn head(&self) -> &str {
+        match self {
+            Self::Atom { name } => name,
+            Self::App { head, .. } => head,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct MetadataIndex {
     pub relations: Vec<RelationAnnotation>,
@@ -135,6 +145,47 @@ impl fmt::Display for SaturationMode {
             Self::Horn => f.write_str("horn"),
         }
     }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct NotationDecl {
+    pub kind: NotationKind,
+    pub term: Option<String>,
+    pub tokens: Vec<String>,
+    pub precedence: Option<String>,
+    pub associativity: Option<NotationAssociativity>,
+    pub items: Vec<NotationItem>,
+    pub source: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NotationKind {
+    Delimiter,
+    Prefix,
+    Infixl,
+    Infixr,
+    General,
+    Coercion,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NotationAssociativity {
+    Left,
+    Right,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum NotationItem {
+    Const {
+        token: String,
+        precedence: Option<String>,
+    },
+    Var {
+        name: String,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
