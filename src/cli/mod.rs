@@ -17,6 +17,7 @@ where
         Some("discover") => run_discover(args),
         Some("dump-env") => run_dump_env(args),
         Some("emit-egglog") => run_emit_egglog(args),
+        Some("prove-egglog") => run_prove_egglog(args),
         Some(other) => Err(EggbauError::UnsupportedCommand(other.to_owned())),
     }
 }
@@ -89,6 +90,34 @@ fn run_emit_egglog(mut args: impl Iterator<Item = String>) -> Result<String, Egg
     }
 }
 
+fn run_prove_egglog(mut args: impl Iterator<Item = String>) -> Result<String, EggbauError> {
+    let file = args.next().ok_or_else(|| {
+        EggbauError::UnsupportedCommand("prove-egglog requires an MM0 input path".to_owned())
+    })?;
+    let theorem = parse_required_theorem(&mut args)?;
+    if let Some(extra) = args.next() {
+        return Err(EggbauError::UnsupportedCommand(extra));
+    }
+
+    let input = read_mm0(&file)?;
+    let env = mm0::parse_env(&input)?;
+    let export_env = export::ExportEnv::from_mm0(&env)?;
+    let proof = crate::egg::prove_theorem(&env, &export_env, &theorem)?;
+    Ok(serde_json::to_string_pretty(&proof).expect("proof JSON should render") + "\n")
+}
+
+fn parse_required_theorem(args: &mut impl Iterator<Item = String>) -> Result<String, EggbauError> {
+    match args.next().as_deref() {
+        Some("--theorem") => args.next().ok_or_else(|| {
+            EggbauError::UnsupportedCommand("--theorem requires a theorem name".to_owned())
+        }),
+        Some(other) => Err(EggbauError::UnsupportedCommand(other.to_owned())),
+        None => Err(EggbauError::UnsupportedCommand(
+            "--theorem is required".to_owned(),
+        )),
+    }
+}
+
 fn read_mm0(file: &str) -> Result<String, EggbauError> {
     std::fs::read_to_string(file).map_err(|source| EggbauError::ReadFile {
         path: file.to_owned(),
@@ -105,8 +134,9 @@ pub fn help_text() -> String {
         "  eggbau discover FILE.mm0 [--suggest-annotations]",
         "  eggbau dump-env FILE.mm0 [--theorem THEOREM]",
         "  eggbau emit-egglog FILE.mm0 [--scheduled]",
+        "  eggbau prove-egglog FILE.mm0 --theorem THEOREM",
         "",
-        "Stage 3 builds a validated ExportEnv and emits egglog text.",
+        "Stage 4 runs proof-mode egglog and extracts proof objects.",
     ]
     .join("\n")
         + "\n"

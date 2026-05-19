@@ -102,11 +102,30 @@ pub enum EggbauError {
     UnsupportedCommand(String),
 }
 
-/// Stage-0 stub for the future proof search entry point.
-pub fn prove_theorem(_mm0: &str, _config: EggbauConfig) -> Result<ProveResult, EggbauError> {
-    Err(EggbauError::UnsupportedCommand(
-        "proof search is not implemented in stage 0".to_owned(),
-    ))
+/// Run the current proof-search pipeline for a designated theorem.
+pub fn prove_theorem(mm0: &str, config: EggbauConfig) -> Result<ProveResult, EggbauError> {
+    let theorem = config.theorem.ok_or_else(|| {
+        EggbauError::UnsupportedCommand("prove_theorem requires a theorem name".to_owned())
+    })?;
+    let env = mm0::parse_env(mm0)?;
+    let export_env = export::ExportEnv::from_mm0(&env)?;
+    let proof = egg::prove_theorem(&env, &export_env, &theorem)?;
+    let certificate = cert::Certificate::empty();
+    let mut certificate_json =
+        serde_json::to_value(certificate).expect("empty certificate should serialize to JSON");
+    if let serde_json::Value::Object(object) = &mut certificate_json {
+        object.insert(
+            "stage4_proof".to_owned(),
+            serde_json::to_value(&proof).expect("stage4 proof should serialize"),
+        );
+    }
+
+    Ok(ProveResult {
+        auf: String::new(),
+        egglog_program: proof.egglog_program,
+        certificate_json,
+        diagnostics: proof.diagnostics,
+    })
 }
 
 /// Produce the long-form version report required by the CLI smoke tests.
