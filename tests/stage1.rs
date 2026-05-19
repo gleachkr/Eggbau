@@ -141,18 +141,29 @@ fn export_validation_ignores_unannotated_unsupported_theorems() {
         r#"
         sort nat;
         sort wff;
+        term eq (x y: nat): wff;
         term p (x: nat): wff;
+        --| @relation nat eq eq_refl eq_trans eq_sym _
+        axiom eq_refl (x: nat): $ eq x x $;
+        axiom eq_trans (x y z: nat):
+          $ eq x y $ > $ eq y z $ > $ eq x z $;
+        axiom eq_sym (x y: nat): $ eq x y $ > $ eq y x $;
         theorem dep {x: nat} (q: wff x): $ p x $;
         --| @saturation ltr
-        theorem safe (x: nat): $ p x $;
+        theorem safe (x: nat): $ eq x x $;
         "#,
     )
     .unwrap();
 
     let export = ExportEnv::from_mm0(&env).unwrap();
 
-    assert_eq!(export.assertions.len(), 1);
-    assert_eq!(export.assertions[0].theorem, "safe");
+    assert_eq!(export.assertions.len(), 4);
+    assert!(
+        export
+            .assertions
+            .iter()
+            .any(|assertion| assertion.theorem == "safe")
+    );
 }
 
 #[test]

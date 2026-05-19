@@ -1,0 +1,26 @@
+sort s;
+sort wff;
+
+term z: s;
+term f (x: s): s;
+term g (x: s): s;
+term eq (x y: s): wff;
+term p (x: s): wff;
+term q (x: s): wff;
+
+--| @relation s eq eq_refl eq_trans eq_sym _
+axiom eq_refl (x: s): $ eq x x $;
+axiom eq_trans (x y z: s): $ eq x y $ > $ eq y z $ > $ eq x z $;
+axiom eq_sym (x y: s): $ eq x y $ > $ eq y x $;
+
+axiom f_id (x: s): $ eq (f x) x $;
+
+--| @rewrite 100
+axiom rewrite_only (x: s): $ eq (g x) x $;
+
+axiom p_from_q (x: s): $ q x $ > $ p x $;
+
+axiom g_congr (a b: s): $ eq a b $ > $ eq (g a) (g b) $;
+
+--| @saturation ltr
+axiom annotated (x: s): $ eq (f (f x)) (f x) $;

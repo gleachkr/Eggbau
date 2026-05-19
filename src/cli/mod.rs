@@ -24,9 +24,16 @@ fn run_discover(mut args: impl Iterator<Item = String>) -> Result<String, Eggbau
     let file = args.next().ok_or_else(|| {
         EggbauError::UnsupportedCommand("discover requires an MM0 input path".to_owned())
     })?;
+    let mut suggest_annotations = false;
+    for arg in args {
+        match arg.as_str() {
+            "--suggest-annotations" => suggest_annotations = true,
+            other => return Err(EggbauError::UnsupportedCommand(other.to_owned())),
+        }
+    }
     let mm0 = read_mm0(&file)?;
 
-    Ok(discover::render_empty_discovery(Path::new(&file), &mm0))
+    discover::render_discovery(Path::new(&file), &mm0, suggest_annotations)
 }
 
 fn run_dump_env(mut args: impl Iterator<Item = String>) -> Result<String, EggbauError> {
@@ -72,10 +79,10 @@ pub fn help_text() -> String {
         "",
         "USAGE:",
         "  eggbau --version",
-        "  eggbau discover FILE.mm0",
+        "  eggbau discover FILE.mm0 [--suggest-annotations]",
         "  eggbau dump-env FILE.mm0 [--theorem THEOREM]",
         "",
-        "Stage 1 parses a conservative MM0 declaration subset.",
+        "Stage 2 validates metadata and suggests saturation annotations.",
     ]
     .join("\n")
         + "\n"

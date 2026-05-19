@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::discover::{MetadataKind, validate_metadata};
 use crate::mm0::{Formula, Mm0Env, SaturationMode, TheoremDecl};
 
 /// Minimal validated export environment for annotated MM0 assertions.
@@ -13,6 +14,14 @@ pub struct ExportEnv {
 
 impl ExportEnv {
     pub fn from_mm0(env: &Mm0Env) -> Result<Self, ExportValidationError> {
+        if let Some(error) = validate_metadata(env).into_iter().next() {
+            return Err(ExportValidationError {
+                theorem: error.theorem,
+                use_kind: export_use_for_metadata(error.metadata_kind),
+                reason: error.message,
+            });
+        }
+
         let mut assertions = Vec::new();
 
         for relation in &env.metadata.relations {
@@ -91,6 +100,14 @@ pub struct ExportValidationError {
     pub theorem: String,
     pub use_kind: ExportUse,
     pub reason: String,
+}
+
+fn export_use_for_metadata(kind: MetadataKind) -> ExportUse {
+    match kind {
+        MetadataKind::Relation => ExportUse::Relation,
+        MetadataKind::Congruence => ExportUse::Congruence,
+        MetadataKind::Saturation => ExportUse::Saturation,
+    }
 }
 
 impl std::fmt::Display for ExportUse {
