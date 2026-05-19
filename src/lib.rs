@@ -92,6 +92,9 @@ pub enum EggbauError {
     #[error("egglog error: {0}")]
     Egglog(String),
 
+    #[error("{0}")]
+    ParseMm0(#[from] mm0::Mm0ParseError),
+
     #[error("unsupported command: {0}")]
     UnsupportedCommand(String),
 }

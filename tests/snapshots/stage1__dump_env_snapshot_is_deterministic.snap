@@ -1,0 +1,474 @@
+---
+source: tests/stage1.rs
+assertion_line: 48
+expression: "String::from_utf8(output.stdout).unwrap()"
+---
+{
+  "sorts": [
+    {
+      "name": "bv64"
+    },
+    {
+      "name": "wff"
+    }
+  ],
+  "terms": [
+    {
+      "name": "bv0",
+      "binders": [],
+      "input_sorts": [],
+      "result_sort": "bv64",
+      "unsupported_reason": null
+    },
+    {
+      "name": "bv_add",
+      "binders": [
+        {
+          "name": "x",
+          "sort": "bv64"
+        },
+        {
+          "name": "y",
+          "sort": "bv64"
+        }
+      ],
+      "input_sorts": [],
+      "result_sort": "bv64",
+      "unsupported_reason": null
+    },
+    {
+      "name": "bv_eq",
+      "binders": [
+        {
+          "name": "x",
+          "sort": "bv64"
+        },
+        {
+          "name": "y",
+          "sort": "bv64"
+        }
+      ],
+      "input_sorts": [],
+      "result_sort": "wff",
+      "unsupported_reason": null
+    },
+    {
+      "name": "writable",
+      "binders": [
+        {
+          "name": "a",
+          "sort": "bv64"
+        },
+        {
+          "name": "n",
+          "sort": "bv64"
+        }
+      ],
+      "input_sorts": [],
+      "result_sort": "wff",
+      "unsupported_reason": null
+    }
+  ],
+  "theorems": [
+    {
+      "name": "bv_eq_refl",
+      "kind": "axiom",
+      "binders": [
+        {
+          "name": "x",
+          "sort": "bv64"
+        }
+      ],
+      "hypotheses": [],
+      "conclusion": {
+        "source": "bv_eq x x",
+        "expr": {
+          "kind": "app",
+          "head": "bv_eq",
+          "args": [
+            {
+              "kind": "atom",
+              "name": "x"
+            },
+            {
+              "kind": "atom",
+              "name": "x"
+            }
+          ]
+        },
+        "unsupported_reason": null
+      },
+      "unsupported_reason": null
+    },
+    {
+      "name": "bv_eq_trans",
+      "kind": "axiom",
+      "binders": [
+        {
+          "name": "x",
+          "sort": "bv64"
+        },
+        {
+          "name": "y",
+          "sort": "bv64"
+        },
+        {
+          "name": "z",
+          "sort": "bv64"
+        }
+      ],
+      "hypotheses": [
+        {
+          "source": "bv_eq x y",
+          "expr": {
+            "kind": "app",
+            "head": "bv_eq",
+            "args": [
+              {
+                "kind": "atom",
+                "name": "x"
+              },
+              {
+                "kind": "atom",
+                "name": "y"
+              }
+            ]
+          },
+          "unsupported_reason": null
+        },
+        {
+          "source": "bv_eq y z",
+          "expr": {
+            "kind": "app",
+            "head": "bv_eq",
+            "args": [
+              {
+                "kind": "atom",
+                "name": "y"
+              },
+              {
+                "kind": "atom",
+                "name": "z"
+              }
+            ]
+          },
+          "unsupported_reason": null
+        }
+      ],
+      "conclusion": {
+        "source": "bv_eq x z",
+        "expr": {
+          "kind": "app",
+          "head": "bv_eq",
+          "args": [
+            {
+              "kind": "atom",
+              "name": "x"
+            },
+            {
+              "kind": "atom",
+              "name": "z"
+            }
+          ]
+        },
+        "unsupported_reason": null
+      },
+      "unsupported_reason": null
+    },
+    {
+      "name": "bv_eq_sym",
+      "kind": "axiom",
+      "binders": [
+        {
+          "name": "x",
+          "sort": "bv64"
+        },
+        {
+          "name": "y",
+          "sort": "bv64"
+        }
+      ],
+      "hypotheses": [
+        {
+          "source": "bv_eq x y",
+          "expr": {
+            "kind": "app",
+            "head": "bv_eq",
+            "args": [
+              {
+                "kind": "atom",
+                "name": "x"
+              },
+              {
+                "kind": "atom",
+                "name": "y"
+              }
+            ]
+          },
+          "unsupported_reason": null
+        }
+      ],
+      "conclusion": {
+        "source": "bv_eq y x",
+        "expr": {
+          "kind": "app",
+          "head": "bv_eq",
+          "args": [
+            {
+              "kind": "atom",
+              "name": "y"
+            },
+            {
+              "kind": "atom",
+              "name": "x"
+            }
+          ]
+        },
+        "unsupported_reason": null
+      },
+      "unsupported_reason": null
+    },
+    {
+      "name": "bv_add_congr",
+      "kind": "axiom",
+      "binders": [
+        {
+          "name": "a",
+          "sort": "bv64"
+        },
+        {
+          "name": "b",
+          "sort": "bv64"
+        },
+        {
+          "name": "c",
+          "sort": "bv64"
+        },
+        {
+          "name": "d",
+          "sort": "bv64"
+        }
+      ],
+      "hypotheses": [
+        {
+          "source": "bv_eq a b",
+          "expr": {
+            "kind": "app",
+            "head": "bv_eq",
+            "args": [
+              {
+                "kind": "atom",
+                "name": "a"
+              },
+              {
+                "kind": "atom",
+                "name": "b"
+              }
+            ]
+          },
+          "unsupported_reason": null
+        },
+        {
+          "source": "bv_eq c d",
+          "expr": {
+            "kind": "app",
+            "head": "bv_eq",
+            "args": [
+              {
+                "kind": "atom",
+                "name": "c"
+              },
+              {
+                "kind": "atom",
+                "name": "d"
+              }
+            ]
+          },
+          "unsupported_reason": null
+        }
+      ],
+      "conclusion": {
+        "source": "bv_eq (bv_add a c) (bv_add b d)",
+        "expr": {
+          "kind": "app",
+          "head": "bv_eq",
+          "args": [
+            {
+              "kind": "app",
+              "head": "bv_add",
+              "args": [
+                {
+                  "kind": "atom",
+                  "name": "a"
+                },
+                {
+                  "kind": "atom",
+                  "name": "c"
+                }
+              ]
+            },
+            {
+              "kind": "app",
+              "head": "bv_add",
+              "args": [
+                {
+                  "kind": "atom",
+                  "name": "b"
+                },
+                {
+                  "kind": "atom",
+                  "name": "d"
+                }
+              ]
+            }
+          ]
+        },
+        "unsupported_reason": null
+      },
+      "unsupported_reason": null
+    },
+    {
+      "name": "bv_add_zero",
+      "kind": "theorem",
+      "binders": [
+        {
+          "name": "x",
+          "sort": "bv64"
+        }
+      ],
+      "hypotheses": [],
+      "conclusion": {
+        "source": "bv_eq (bv_add x bv0) x",
+        "expr": {
+          "kind": "app",
+          "head": "bv_eq",
+          "args": [
+            {
+              "kind": "app",
+              "head": "bv_add",
+              "args": [
+                {
+                  "kind": "atom",
+                  "name": "x"
+                },
+                {
+                  "kind": "atom",
+                  "name": "bv0"
+                }
+              ]
+            },
+            {
+              "kind": "atom",
+              "name": "x"
+            }
+          ]
+        },
+        "unsupported_reason": null
+      },
+      "unsupported_reason": null
+    },
+    {
+      "name": "writable_from_eq",
+      "kind": "theorem",
+      "binders": [
+        {
+          "name": "a",
+          "sort": "bv64"
+        },
+        {
+          "name": "b",
+          "sort": "bv64"
+        },
+        {
+          "name": "n",
+          "sort": "bv64"
+        }
+      ],
+      "hypotheses": [
+        {
+          "source": "bv_eq a b",
+          "expr": {
+            "kind": "app",
+            "head": "bv_eq",
+            "args": [
+              {
+                "kind": "atom",
+                "name": "a"
+              },
+              {
+                "kind": "atom",
+                "name": "b"
+              }
+            ]
+          },
+          "unsupported_reason": null
+        },
+        {
+          "source": "writable a n",
+          "expr": {
+            "kind": "app",
+            "head": "writable",
+            "args": [
+              {
+                "kind": "atom",
+                "name": "a"
+              },
+              {
+                "kind": "atom",
+                "name": "n"
+              }
+            ]
+          },
+          "unsupported_reason": null
+        }
+      ],
+      "conclusion": {
+        "source": "writable b n",
+        "expr": {
+          "kind": "app",
+          "head": "writable",
+          "args": [
+            {
+              "kind": "atom",
+              "name": "b"
+            },
+            {
+              "kind": "atom",
+              "name": "n"
+            }
+          ]
+        },
+        "unsupported_reason": null
+      },
+      "unsupported_reason": null
+    }
+  ],
+  "metadata": {
+    "relations": [
+      {
+        "sort": "bv64",
+        "relation": "bv_eq",
+        "reflexivity": "bv_eq_refl",
+        "transitivity": "bv_eq_trans",
+        "symmetry": "bv_eq_sym",
+        "transport": null
+      }
+    ],
+    "congruences": [
+      {
+        "theorem": "bv_add_congr"
+      }
+    ],
+    "saturations": [
+      {
+        "theorem": "bv_add_zero",
+        "mode": "ltr"
+      },
+      {
+        "theorem": "writable_from_eq",
+        "mode": "horn"
+      }
+    ]
+  },
+  "diagnostics": []
+}

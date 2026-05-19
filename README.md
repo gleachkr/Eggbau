@@ -35,11 +35,15 @@ It does not treat `@rewrite` as an eggbau contract.  `@rewrite` belongs to the
 Aufbau normalizer; a theorem marked only with `@rewrite` must not be exported
 to egglog by eggbau.
 
-## Stage 0 status
+## Stage 1 status
 
-This repository currently contains the Rust crate skeleton, a small CLI, and a
-fixture harness.  Serious MM0 parsing, export validation, proof search,
-egglog-proof translation, and `.auf` rendering are later stages.
+This repository currently contains the Rust crate skeleton, a small CLI, a
+fixture harness, and a conservative MM0 declaration parser.  The parser extracts
+sorts, terms, assertion binders, hypotheses, conclusions, `@relation`,
+`@congr`, and `@saturation` metadata for the supported prefix fragment.  It
+fails closed for unsupported declaration forms and reports clear diagnostics for
+unsupported notation.  Export validation, proof search, egglog-proof
+translation, and `.auf` rendering are later stages.
 
 Useful commands:
 
@@ -49,10 +53,12 @@ cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
 eggbau --version
 eggbau discover tests/fixtures/empty/input.mm0
+eggbau dump-env tests/fixtures/stage1/input.mm0
+eggbau dump-env tests/fixtures/stage1/input.mm0 --theorem bv_add_zero
 ```
 
-The crate is pinned to egglog `2.0.0`.  A stage-0 proof API spike records that
-this public crate exposes term encoding, but not the structured
-`ProofStore`/`Justification` inspection API needed by the full design.  Later
-work should either move to an egglog pin with that API or carry a small
-read-only proof API patch.
+The crate uses a vendored egglog `2.0.0` checkout with the temporary eggbau
+read-only proof API patch described in `AGENTS.md`.  The stage-0 proof API
+spike checks that `CommandOutput::ProveExists`, `ProofStore`,
+`Justification`, propositions, and proof terms are visible through that patched
+API.

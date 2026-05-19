@@ -1,0 +1,26 @@
+sort bv64;
+sort wff;
+
+term bv0: bv64;
+term bv_add (x y: bv64): bv64;
+term bv_eq (x y: bv64): wff;
+term writable (a n: bv64): wff;
+
+--| @relation bv64 bv_eq bv_eq_refl bv_eq_trans bv_eq_sym _
+axiom bv_eq_refl (x: bv64): $ bv_eq x x $;
+axiom bv_eq_trans (x y z: bv64):
+  $ bv_eq x y $ > $ bv_eq y z $ > $ bv_eq x z $;
+axiom bv_eq_sym (x y: bv64): $ bv_eq x y $ > $ bv_eq y x $;
+
+--| @congr
+axiom bv_add_congr (a b c d: bv64):
+  $ bv_eq a b $ >
+  $ bv_eq c d $ >
+  $ bv_eq (bv_add a c) (bv_add b d) $;
+
+--| @saturation ltr
+theorem bv_add_zero (x: bv64): $ bv_eq (bv_add x bv0) x $;
+
+--| @saturation horn
+theorem writable_from_eq (a b n: bv64):
+  $ bv_eq a b $ > $ writable a n $ > $ writable b n $;
