@@ -110,6 +110,14 @@ pub enum EggbauError {
 
 /// Run the current proof-search pipeline for a designated theorem.
 pub fn prove_theorem(mm0: &str, config: EggbauConfig) -> Result<ProveResult, EggbauError> {
+    prove_theorem_with_auf_format(mm0, config, auf::AufRenderFormat::explicit())
+}
+
+pub(crate) fn prove_theorem_with_auf_format(
+    mm0: &str,
+    config: EggbauConfig,
+    auf_format: auf::AufRenderFormat,
+) -> Result<ProveResult, EggbauError> {
     let EggbauConfig {
         theorem,
         output_mode,
@@ -130,7 +138,10 @@ pub fn prove_theorem(mm0: &str, config: EggbauConfig) -> Result<ProveResult, Egg
         &export_env,
         &theorem,
         &certificate,
-        auf::AufRenderOptions { output_mode },
+        auf::AufRenderOptions {
+            output_mode,
+            format: auf_format,
+        },
     )?;
     let mut certificate_json =
         serde_json::to_value(certificate).expect("certificate should serialize to JSON");

@@ -200,6 +200,30 @@ fn prove_auf(input: &str) -> String {
 }
 
 #[test]
+fn cli_emit_auf_implicit_format_omits_binder_assignments() {
+    let dir = temp_test_dir("stage8_implicit_format");
+    fs::create_dir_all(&dir).unwrap();
+    let mm0_path = dir.join("input.mm0");
+    fs::write(&mm0_path, CONGR_INPUT).unwrap();
+
+    let auf = eggbau::cli::run([
+        "eggbau".to_owned(),
+        "emit-auf".to_owned(),
+        mm0_path.display().to_string(),
+        "--theorem".to_owned(),
+        "target".to_owned(),
+        "--format".to_owned(),
+        "implicit".to_owned(),
+    ])
+    .unwrap();
+
+    assert!(auf.contains("by f_id ["));
+    assert!(auf.contains("by h_congr [rule_2]"));
+    assert!(!auf.contains(":="));
+    verify_with_external_tools("stage8_implicit_format", CONGR_INPUT, &auf);
+}
+
+#[test]
 fn renders_congruence_certificate_as_auf_fragment() {
     let auf = prove_auf(CONGR_INPUT);
 

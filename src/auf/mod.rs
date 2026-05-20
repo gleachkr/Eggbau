@@ -1,4 +1,7 @@
 pub mod labels;
 pub mod render;
 
-pub use render::{AufRenderError, AufRenderOptions, AufRenderResult, render_certificate};
+pub use render::{
+    AufRenderError, AufRenderExplicitness, AufRenderFormat, AufRenderOptions, AufRenderResult,
+    render_certificate,
+};

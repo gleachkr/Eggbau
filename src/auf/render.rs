@@ -9,15 +9,43 @@ use crate::cert::{CertStep, Certificate, Formula, Label, Literal, Ref, Term, Ter
 use crate::export::{ExportEnv, RelationBundle};
 use crate::mm0::{MathExpr, Mm0Env, TheoremDecl};
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub enum AufRenderExplicitness {
+    #[default]
+    Explicit,
+    Implicit,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub struct AufRenderFormat {
+    pub explicitness: AufRenderExplicitness,
+}
+
+impl AufRenderFormat {
+    pub fn explicit() -> Self {
+        Self {
+            explicitness: AufRenderExplicitness::Explicit,
+        }
+    }
+
+    pub fn implicit() -> Self {
+        Self {
+            explicitness: AufRenderExplicitness::Implicit,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct AufRenderOptions {
     pub output_mode: OutputMode,
+    pub format: AufRenderFormat,
 }
 
 impl Default for AufRenderOptions {
     fn default() -> Self {
         Self {
             output_mode: OutputMode::Fragment,
+            format: AufRenderFormat::explicit(),
         }
     }
 }
@@ -87,6 +115,7 @@ impl RenderRef {
 
 #[derive(Clone, Debug, Default)]
 struct RenderState {
+    format: AufRenderFormat,
     formulas: BTreeMap<Label, Formula>,
     refs: BTreeMap<Label, RenderRef>,
     emitted_labels: BTreeSet<String>,
@@ -116,7 +145,10 @@ pub fn render_certificate(
         });
     }
 
-    let mut state = RenderState::default();
+    let mut state = RenderState {
+        format: options.format,
+        ..RenderState::default()
+    };
     let mut out = String::new();
     writeln!(out, "{}", theorem_decl.name).expect("write to string");
     writeln!(out, "{}", "-".repeat(theorem_decl.name.len().max(3))).expect("write to string");
@@ -584,7 +616,7 @@ fn emit_line(
         input.rule
     )
     .expect("write to string");
-    if !bindings.is_empty() {
+    if state.format.explicitness == AufRenderExplicitness::Explicit && !bindings.is_empty() {
         let rendered = bindings
             .iter()
             .map(|(name, value)| format!("{name} := $ {value} $"))
@@ -1006,7 +1038,7 @@ fn render_term_body(term: &Term) -> Result<String, AufRenderError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{AufRenderOptions, render_certificate};
+    use super::{AufRenderFormat, AufRenderOptions, render_certificate};
     use crate::cert::{CertStep, Certificate, Formula, Label, Term};
     use crate::export::ExportEnv;
     use crate::mm0::parse_env;
@@ -1044,5 +1076,42 @@ theorem target (x: s): $ eq (f x) x $;
 
         assert!(rendered.text.contains("l1: $ eq (f x) x $ by f_id"));
         assert!(rendered.text.contains("(x := $ x $) []"));
+    }
+
+    #[test]
+    fn renders_implicit_rule_bindings() {
+        let env = parse_env(
+            r#"
+sort s;
+provable sort wff;
+term f (x: s): s;
+term eq (x y: s): wff;
+--| @relation s eq eq_refl eq_trans eq_sym _
+axiom eq_refl (x: s): $ eq x x $;
+axiom eq_trans (x y z: s): $ eq x y $ > $ eq y z $ > $ eq x z $;
+axiom eq_sym (x y: s): $ eq x y $ > $ eq y x $;
+--| @saturation ltr
+axiom f_id (x: s): $ eq (f x) x $;
+theorem target (x: s): $ eq (f x) x $;
+"#,
+        )
+        .unwrap();
+        let export = ExportEnv::from_mm0(&env).unwrap();
+        let cert = Certificate::new(vec![CertStep::RuleApply {
+            label: Label::from("l1"),
+            formula: Formula::rel("eq", Term::app("f", vec![Term::var("x")]), Term::var("x")),
+            mm0_rule: "f_id".to_owned(),
+            bindings: Vec::new(),
+            refs: Vec::new(),
+        }]);
+        let options = AufRenderOptions {
+            output_mode: crate::OutputMode::Fragment,
+            format: AufRenderFormat::implicit(),
+        };
+
+        let rendered = render_certificate(&env, &export, "target", &cert, options).unwrap();
+
+        assert!(rendered.text.contains("l1: $ eq (f x) x $ by f_id []"));
+        assert!(!rendered.text.contains(":="));
     }
 }

@@ -1,6 +1,9 @@
 use std::path::Path;
 
-use crate::{EggbauConfig, EggbauError, OutputMode, discover, export, mm0, version_report};
+use crate::{
+    EggbauConfig, EggbauError, OutputMode, auf::AufRenderFormat, discover, export, mm0,
+    version_report,
+};
 
 /// Run the eggbau command line using the provided argument iterator.
 pub fn run<I, S>(args: I) -> Result<String, EggbauError>
@@ -111,21 +114,57 @@ fn run_emit_auf(mut args: impl Iterator<Item = String>) -> Result<String, Eggbau
     let file = args.next().ok_or_else(|| {
         EggbauError::UnsupportedCommand("emit-auf requires an MM0 input path".to_owned())
     })?;
-    let theorem = parse_required_theorem(&mut args)?;
-    if let Some(extra) = args.next() {
-        return Err(EggbauError::UnsupportedCommand(extra));
-    }
+    let (theorem, format) = parse_emit_auf_options(&mut args)?;
 
     let input = read_mm0(&file)?;
-    let result = crate::prove_theorem(
+    let result = crate::prove_theorem_with_auf_format(
         &input,
         EggbauConfig {
             theorem: Some(theorem),
             output_mode: OutputMode::Fragment,
             allow_synthetic_discovery: false,
         },
+        format,
     )?;
     Ok(result.auf)
+}
+
+fn parse_emit_auf_options(
+    args: &mut impl Iterator<Item = String>,
+) -> Result<(String, AufRenderFormat), EggbauError> {
+    let mut theorem = None;
+    let mut format = AufRenderFormat::explicit();
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--theorem" => {
+                theorem = Some(args.next().ok_or_else(|| {
+                    EggbauError::UnsupportedCommand("--theorem requires a theorem name".to_owned())
+                })?);
+            }
+            "--format" => {
+                let value = args.next().ok_or_else(|| {
+                    EggbauError::UnsupportedCommand(
+                        "--format requires explicit or implicit".to_owned(),
+                    )
+                })?;
+                format = parse_auf_format(&value)?;
+            }
+            other => return Err(EggbauError::UnsupportedCommand(other.to_owned())),
+        }
+    }
+    let theorem = theorem
+        .ok_or_else(|| EggbauError::UnsupportedCommand("--theorem is required".to_owned()))?;
+    Ok((theorem, format))
+}
+
+fn parse_auf_format(value: &str) -> Result<AufRenderFormat, EggbauError> {
+    match value {
+        "explicit" => Ok(AufRenderFormat::explicit()),
+        "implicit" => Ok(AufRenderFormat::implicit()),
+        other => Err(EggbauError::UnsupportedCommand(format!(
+            "unknown emit-auf format: {other}"
+        ))),
+    }
 }
 
 fn parse_required_theorem(args: &mut impl Iterator<Item = String>) -> Result<String, EggbauError> {
@@ -157,7 +196,7 @@ pub fn help_text() -> String {
         "  eggbau dump-env FILE.mm0 [--theorem THEOREM]",
         "  eggbau emit-egglog FILE.mm0 [--scheduled]",
         "  eggbau prove-egglog FILE.mm0 --theorem THEOREM",
-        "  eggbau emit-auf FILE.mm0 --theorem THEOREM",
+        "  eggbau emit-auf FILE.mm0 --theorem THEOREM [--format explicit|implicit]",
         "",
         "Stage 8 can emit an Aufbau proof fragment for one theorem.",
     ]
