@@ -576,7 +576,6 @@ fn emit_line(
         input.label,
     )?;
 
-    writeln!(out, "-- eggbau: certificate step {}", input.label.as_str()).expect("write to string");
     write!(
         out,
         "{}: {} by {}",
