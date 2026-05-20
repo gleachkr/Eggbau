@@ -9,6 +9,8 @@ use crate::cert::{CertStep, Certificate, Formula, Label, Literal, Ref, Term, Ter
 use crate::export::{ExportEnv, RelationBundle};
 use crate::mm0::{MathExpr, Mm0Env, TheoremDecl};
 
+use super::notation::NotationRenderEnv;
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub enum AufRenderExplicitness {
     #[default]
@@ -24,9 +26,17 @@ pub enum AufRenderCompaction {
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub enum AufMathFormat {
+    #[default]
+    Kernel,
+    Notation,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct AufRenderFormat {
     pub explicitness: AufRenderExplicitness,
     pub compaction: AufRenderCompaction,
+    pub math: AufMathFormat,
 }
 
 impl AufRenderFormat {
@@ -34,6 +44,7 @@ impl AufRenderFormat {
         Self {
             explicitness: AufRenderExplicitness::Explicit,
             compaction: AufRenderCompaction::NoCompact,
+            math: AufMathFormat::Kernel,
         }
     }
 
@@ -41,6 +52,7 @@ impl AufRenderFormat {
         Self {
             explicitness: AufRenderExplicitness::Implicit,
             compaction: AufRenderCompaction::NoCompact,
+            math: AufMathFormat::Kernel,
         }
     }
 
@@ -95,6 +107,13 @@ pub enum AufRenderError {
     #[error("cannot render literal term `{literal:?}` in MM0 math")]
     UnsupportedLiteral { literal: Literal },
 
+    #[error("unsupported notation for term `{term}` ({kind}): {declaration}")]
+    UnsupportedNotation {
+        term: String,
+        kind: String,
+        declaration: String,
+    },
+
     #[error("cannot infer formula for certificate step `{label}`: {reason}")]
     FormulaInference { label: Label, reason: String },
 
@@ -132,9 +151,35 @@ impl RenderRef {
     }
 }
 
+#[derive(Clone, Debug, Eq)]
+enum BindingValue {
+    Term(Term),
+    Formula(Formula),
+}
+
+impl PartialEq for BindingValue {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Term(left), Self::Term(right)) => left == right,
+            (Self::Formula(left), Self::Formula(right)) => left == right,
+            (Self::Term(left), Self::Formula(right)) => left == &term_from_formula(right),
+            (Self::Formula(left), Self::Term(right)) => &term_from_formula(left) == right,
+        }
+    }
+}
+
+fn term_from_formula(formula: &Formula) -> Term {
+    match formula {
+        Formula::Atom { pred, args } if args.is_empty() => Term::var(pred.clone()),
+        Formula::Atom { pred, args } => Term::app(pred.clone(), args.clone()),
+        Formula::Rel { rel, lhs, rhs } => Term::app(rel.clone(), vec![lhs.clone(), rhs.clone()]),
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 struct RenderState {
     format: AufRenderFormat,
+    notation: Option<NotationRenderEnv>,
     formulas: BTreeMap<Label, Formula>,
     refs: BTreeMap<Label, RenderRef>,
     emitted_labels: BTreeSet<String>,
@@ -179,6 +224,8 @@ pub fn render_certificate_with_block_header(
 
     let mut state = RenderState {
         format: options.format,
+        notation: (options.format.math == AufMathFormat::Notation)
+            .then(|| NotationRenderEnv::from_mm0(mm0_env)),
         ..RenderState::default()
     };
     let mut out = String::new();
@@ -264,7 +311,7 @@ fn render_step(
                 .iter()
                 .map(|reference| formula_for_render_ref(reference, theorem, export_env, state))
                 .collect::<Result<Vec<_>, _>>()?;
-            let initial_bindings = render_explicit_bindings(bindings)?;
+            let initial_bindings = render_explicit_bindings(bindings);
             emit_line(
                 EmitLineInput {
                     label,
@@ -620,7 +667,7 @@ struct EmitLineInput<'a> {
     rule: &'a str,
     refs: &'a [RenderRef],
     ref_formulas: &'a [Formula],
-    initial_bindings: BTreeMap<String, String>,
+    initial_bindings: BTreeMap<String, BindingValue>,
 }
 
 impl<'a> EmitLineInput<'a> {
@@ -676,15 +723,18 @@ fn emit_line(
         out,
         "{}: {} by {}",
         input.label.as_str(),
-        render_math_formula(input.formula)?,
+        render_math_formula(input.formula, state)?,
         input.rule
     )
     .expect("write to string");
     if state.format.explicitness == AufRenderExplicitness::Explicit && !bindings.is_empty() {
         let rendered = bindings
             .iter()
-            .map(|(name, value)| format!("{name} := $ {value} $"))
-            .collect::<Vec<_>>()
+            .map(|(name, value)| {
+                render_binding_value(value, state)
+                    .map(|rendered| format!("{name} := $ {rendered} $"))
+            })
+            .collect::<Result<Vec<_>, _>>()?
             .join(", ");
         write!(out, " ({rendered})").expect("write to string");
     }
@@ -712,9 +762,9 @@ fn infer_bindings(
     theorem: &TheoremDecl,
     formula: &Formula,
     ref_formulas: &[Formula],
-    mut bindings: BTreeMap<String, String>,
+    mut bindings: BTreeMap<String, BindingValue>,
     label: &Label,
-) -> Result<BTreeMap<String, String>, AufRenderError> {
+) -> Result<BTreeMap<String, BindingValue>, AufRenderError> {
     let binder_names = theorem
         .binders
         .iter()
@@ -765,7 +815,7 @@ fn unify_formula(
     actual: &Formula,
     binder_names: &BTreeSet<&str>,
     theorem: &TheoremDecl,
-    bindings: &mut BTreeMap<String, String>,
+    bindings: &mut BTreeMap<String, BindingValue>,
 ) -> Result<bool, AufRenderError> {
     let Some(expr) = pattern.expr.as_ref() else {
         return Ok(false);
@@ -778,11 +828,16 @@ fn unify_formula_expr(
     actual: &Formula,
     binder_names: &BTreeSet<&str>,
     theorem: &TheoremDecl,
-    bindings: &mut BTreeMap<String, String>,
+    bindings: &mut BTreeMap<String, BindingValue>,
 ) -> Result<bool, AufRenderError> {
     match pattern {
         MathExpr::Atom { name } if binder_names.contains(name.as_str()) => {
-            insert_binding(theorem, bindings, name, render_formula_body(actual)?)?;
+            insert_binding(
+                theorem,
+                bindings,
+                name,
+                BindingValue::Formula(actual.clone()),
+            )?;
             Ok(true)
         }
         MathExpr::Atom { name } => Ok(matches!(actual, Formula::Atom { pred, args }
@@ -813,11 +868,11 @@ fn unify_term(
     actual: &Term,
     binder_names: &BTreeSet<&str>,
     theorem: &TheoremDecl,
-    bindings: &mut BTreeMap<String, String>,
+    bindings: &mut BTreeMap<String, BindingValue>,
 ) -> Result<bool, AufRenderError> {
     match pattern {
         MathExpr::Atom { name } if binder_names.contains(name.as_str()) => {
-            insert_binding(theorem, bindings, name, render_term_binding_body(actual)?)?;
+            insert_binding(theorem, bindings, name, BindingValue::Term(actual.clone()))?;
             Ok(true)
         }
         MathExpr::Atom { name } => Ok(matches!(actual, Term::Var { name: found } if found == name)),
@@ -844,9 +899,9 @@ fn unify_term(
 
 fn insert_binding(
     theorem: &TheoremDecl,
-    bindings: &mut BTreeMap<String, String>,
+    bindings: &mut BTreeMap<String, BindingValue>,
     name: &str,
-    value: String,
+    value: BindingValue,
 ) -> Result<(), AufRenderError> {
     match bindings.get(name) {
         Some(existing) if existing != &value => Err(AufRenderError::InconsistentBinding {
@@ -863,16 +918,16 @@ fn insert_binding(
 
 fn render_explicit_bindings(
     bindings: &[(String, TermOrFormula)],
-) -> Result<BTreeMap<String, String>, AufRenderError> {
+) -> BTreeMap<String, BindingValue> {
     let mut rendered = BTreeMap::new();
     for (name, value) in bindings {
         let value = match value {
-            TermOrFormula::Term { term } => render_term_binding_body(term)?,
-            TermOrFormula::Formula { formula } => render_formula_body(formula)?,
+            TermOrFormula::Term { term } => BindingValue::Term(term.clone()),
+            TermOrFormula::Formula { formula } => BindingValue::Formula(formula.clone()),
         };
         rendered.insert(name.clone(), value);
     }
-    Ok(rendered)
+    rendered
 }
 
 fn resolve_refs(refs: &[Ref], state: &RenderState) -> Result<Vec<RenderRef>, AufRenderError> {
@@ -1041,8 +1096,37 @@ fn fresh_aux_label(base: &str, suffix: &str, state: &RenderState) -> Label {
     }
 }
 
-fn render_math_formula(formula: &Formula) -> Result<String, AufRenderError> {
-    Ok(format!("$ {} $", render_formula_body(formula)?))
+fn render_math_formula(formula: &Formula, state: &RenderState) -> Result<String, AufRenderError> {
+    Ok(format!(
+        "$ {} $",
+        render_formula_body_with_state(formula, state)?
+    ))
+}
+
+fn render_formula_body_with_state(
+    formula: &Formula,
+    state: &RenderState,
+) -> Result<String, AufRenderError> {
+    if let Some(notation) = &state.notation {
+        return notation.render_formula(formula);
+    }
+    render_formula_body(formula)
+}
+
+fn render_binding_value(
+    value: &BindingValue,
+    state: &RenderState,
+) -> Result<String, AufRenderError> {
+    match value {
+        BindingValue::Term(term) => {
+            if let Some(notation) = &state.notation {
+                notation.render_term(term)
+            } else {
+                render_term_binding_body(term)
+            }
+        }
+        BindingValue::Formula(formula) => render_formula_body_with_state(formula, state),
+    }
 }
 
 fn render_formula_body(formula: &Formula) -> Result<String, AufRenderError> {

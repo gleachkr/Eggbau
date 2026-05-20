@@ -66,8 +66,15 @@ Useful target and output options:
     --targets FILE       Read theorem/lemma targets, one per line
 -o, --out FILE           Write generated .auf to FILE
     --base FILE          Splice generated proofs into an existing .auf
-    --format FORMAT      Output style: explicit or implicit
+    --format FORMAT      Formatting dimension value: explicit, implicit,
+                         compact, nocompact, kernel, or notation
 ```
+
+Multiple `--format` values may be supplied. `explicit` and `implicit`,
+`compact` and `nocompact`, and `kernel` and `notation` are independent
+formatting dimensions; the last value in each dimension wins. `kernel` is the
+current default math renderer. `notation` asks the `.auf` renderer to use the
+last printable MM0 notation declared for each constructor.
 
 A target file is line-oriented:
 

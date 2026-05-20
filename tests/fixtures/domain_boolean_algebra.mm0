@@ -26,6 +26,13 @@ term and (x y: bool): bool;
 term or (x y: bool): bool;
 term not (x: bool): bool;
 
+prefix top: $⊤$ prec max;
+prefix bot: $⊥$ prec max;
+prefix not: $¬$ prec 80;
+infixl and: $∧$ prec 60;
+infixl or: $∨$ prec 50;
+infixl eq: $=$ prec 40;
+
 --| @relation bool eq eq_refl eq_trans eq_sym _
 axiom eq_refl (x: bool): $ eq x x $;
 axiom eq_trans (x y z: bool): $ eq x y $ > $ eq y z $ > $ eq x z $;

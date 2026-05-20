@@ -28,6 +28,14 @@ term mul (x y: R): R;
 term neg (x: R): R;
 term sub (x y: R): R;
 
+prefix zero: $0$ prec max;
+prefix one: $1$ prec max;
+prefix neg: $-$ prec 70;
+infixl mul: $*$ prec 60;
+infixl add: $+$ prec 50;
+infixl sub: $−$ prec 50;
+infixl eq: $=$ prec 40;
+
 --| @relation R eq eq_refl eq_trans eq_sym _
 axiom eq_refl (x: R): $ eq x x $;
 axiom eq_trans (x y z: R): $ eq x y $ > $ eq y z $ > $ eq x z $;

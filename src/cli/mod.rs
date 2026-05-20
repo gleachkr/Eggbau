@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     EggbauError, OutputMode, ProofTarget,
-    auf::{AufRenderCompaction, AufRenderExplicitness, AufRenderFormat},
+    auf::{AufMathFormat, AufRenderCompaction, AufRenderExplicitness, AufRenderFormat},
     discover, export, mm0, version_report,
 };
 
@@ -373,7 +373,8 @@ fn parse_script_prove_options(
             "--format" | "--proof-style" => {
                 let value = args.next().ok_or_else(|| {
                     EggbauError::UnsupportedCommand(
-                        "script prove --format requires explicit, implicit, compact, or nocompact"
+                        "script prove --format requires explicit, implicit, compact, \
+                         nocompact, kernel, or notation"
                             .to_owned(),
                     )
                 })?;
@@ -476,7 +477,9 @@ fn parse_prove_options(
             "--format" | "--proof-style" => {
                 let value = args.next().ok_or_else(|| {
                     EggbauError::UnsupportedCommand(
-                        "--format requires explicit, implicit, compact, or nocompact".to_owned(),
+                        "--format requires explicit, implicit, compact, nocompact, \
+                         kernel, or notation"
+                            .to_owned(),
                     )
                 })?;
                 format = apply_auf_format_value(format, &value)?;
@@ -1061,6 +1064,8 @@ fn apply_auf_format_value(
         "nocompact" | "no-compact" => {
             format.compaction = AufRenderCompaction::NoCompact;
         }
+        "kernel" => format.math = AufMathFormat::Kernel,
+        "notation" => format.math = AufMathFormat::Notation,
         other => {
             return Err(EggbauError::UnsupportedCommand(format!(
                 "unknown Aufbau output format: {other}"
@@ -1118,7 +1123,7 @@ pub fn help_text() -> String {
         "PROVE OUTPUT:",
         "  -o, --out FILE           Write generated .auf to FILE",
         "      --base FILE          Splice generated proofs into an existing .auf",
-        "      --format FORMAT      explicit, implicit, compact, nocompact",
+        "      --format FORMAT      explicit, implicit, compact, nocompact, kernel, notation",
         "",
         "If --out is omitted, generated .auf is written to stdout.",
         "Diagnostics and stream-order warnings are written to stderr.",
