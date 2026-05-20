@@ -1,7 +1,7 @@
 use std::io::Write;
 use std::process::{Command, Stdio};
 
-const CONVERSION_FIXTURE: &str = "tests/fixtures/stage4_conversion.mm0";
+const CONVERSION_FIXTURE: &str = "tests/fixtures/conversion.mm0";
 const MULTI_FIXTURE: &str = "tests/fixtures/cli_multi.mm0";
 
 #[test]
@@ -160,7 +160,7 @@ fn old_prove_egglog_top_level_command_is_rejected() {
 fn temp_script_path(name: &str) -> std::path::PathBuf {
     let mut path = std::env::temp_dir();
     path.push(format!(
-        "eggbau-cli-stage7-{name}-{}-{}.egg",
+        "eggbau-cli-script-check-{name}-{}-{}.egg",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

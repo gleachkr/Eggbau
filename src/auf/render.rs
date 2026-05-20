@@ -169,8 +169,9 @@ pub fn render_certificate_with_block_header(
         return Err(AufRenderError::UnsupportedOutputMode {
             mode: options.output_mode,
             reason: concat!(
-                "stage 8 only emits proof fragments; splicing and full-stream ",
-                "generation need stream-order proof obligation tracking"
+                "fragment rendering cannot emit spliced or full-stream output; ",
+                "use the top-level pipeline for stream-order proof obligation ",
+                "tracking"
             )
             .to_owned(),
         });

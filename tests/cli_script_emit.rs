@@ -2,7 +2,7 @@ use std::process::Command;
 
 use eggbau::{egg, export, mm0};
 
-const CONVERSION_FIXTURE: &str = "tests/fixtures/stage4_conversion.mm0";
+const CONVERSION_FIXTURE: &str = "tests/fixtures/conversion.mm0";
 
 #[test]
 fn script_emit_outputs_environment_only_script() {

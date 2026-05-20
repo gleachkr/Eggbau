@@ -8,7 +8,7 @@ use eggbau::egg::run_proof_api_spike;
 use eggbau::export::{ExportEnv, render_empty_egglog};
 
 #[test]
-fn version_report_mentions_stage0_contracts() {
+fn version_report_mentions_supported_contracts() {
     let report = eggbau::version_report();
 
     assert!(report.contains("eggbau 0.1.0"));

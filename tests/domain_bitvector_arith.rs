@@ -137,7 +137,7 @@ fn proves_sub_self_via_sub_def_and_add_neg() {
     let auf = prove_auf(decl);
     assert!(auf.contains("by bv_sub_def"));
     assert!(auf.contains("by bv_add_neg"));
-    verify("stage8_bv_sub_self", decl, &auf);
+    verify("domain_bv_sub_self", decl, &auf);
 }
 
 #[test]
@@ -147,7 +147,7 @@ fn proves_sub_zero_via_neg_zero_and_add_zero() {
     assert!(auf.contains("by bv_sub_def"));
     assert!(auf.contains("by bv_neg_zero"));
     assert!(auf.contains("by bv_add_zero"));
-    verify("stage8_bv_sub_zero", decl, &auf);
+    verify("domain_bv_sub_zero", decl, &auf);
 }
 
 #[test]
@@ -156,7 +156,7 @@ fn proves_add_sub_cancel() {
     let auf = prove_auf(decl);
     assert!(auf.contains("by bv_sub_def"));
     assert!(auf.contains("by bv_add_assoc") || auf.contains("by bv_add_comm"));
-    verify("stage8_bv_add_sub_cancel", decl, &auf);
+    verify("domain_bv_add_sub_cancel", decl, &auf);
 }
 
 #[test]
@@ -166,7 +166,7 @@ fn proves_xor_cancel() {
     assert!(auf.contains("by bv_xor_assoc"));
     assert!(auf.contains("by bv_xor_self"));
     assert!(auf.contains("by bv_xor_zero"));
-    verify("stage8_bv_xor_cancel", decl, &auf);
+    verify("domain_bv_xor_cancel", decl, &auf);
 }
 
 #[test]
@@ -179,7 +179,7 @@ fn proves_xor_cancel_chain() {
     let auf = prove_auf(decl);
     assert!(auf.contains("by bv_xor_assoc") || auf.contains("by bv_xor_comm"));
     assert!(auf.contains("by bv_xor_self"));
-    verify("stage8_bv_xor_cancel_chain", decl, &auf);
+    verify("domain_bv_xor_cancel_chain", decl, &auf);
 }
 
 #[test]
@@ -188,7 +188,7 @@ fn proves_shl_one_zero() {
     let auf = prove_auf(decl);
     assert!(auf.contains("by bv_shl_one_def"));
     assert!(auf.contains("by bv_add_zero"));
-    verify("stage8_bv_shl_one_zero", decl, &auf);
+    verify("domain_bv_shl_one_zero", decl, &auf);
 }
 
 #[test]
@@ -202,7 +202,7 @@ fn proves_mask_with_complement() {
     assert!(auf.contains("by bv_and_ones"));
     assert!(auf.contains("by bv_and_zero"));
     assert!(auf.contains("by bv_or_zero"));
-    verify("stage8_bv_mask_with_complement", decl, &auf);
+    verify("domain_bv_mask_with_complement", decl, &auf);
 }
 
 #[test]
@@ -212,7 +212,7 @@ fn proves_neg_of_xor_self() {
     let auf = prove_auf(decl);
     assert!(auf.contains("by bv_xor_self"));
     assert!(auf.contains("by bv_neg_zero"));
-    verify("stage8_bv_neg_xor_self", decl, &auf);
+    verify("domain_bv_neg_xor_self", decl, &auf);
 }
 
 #[test]
@@ -224,12 +224,12 @@ fn proves_double_negation_under_shift() {
     );
     let auf = prove_auf(decl);
     assert!(auf.contains("by bv_neg_neg"));
-    verify("stage8_bv_neg_neg_shl", decl, &auf);
+    verify("domain_bv_neg_neg_shl", decl, &auf);
 }
 
 #[test]
 fn fixture_file_axioms_match_embedded_axioms() {
-    let fixture = include_str!("fixtures/stage8_bitvector_arith.mm0");
+    let fixture = include_str!("fixtures/domain_bitvector_arith.mm0");
     for axiom_name in [
         "bv_add_comm",
         "bv_xor_self",

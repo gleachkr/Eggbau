@@ -8,7 +8,7 @@ use crate::export::{self, ExportEnv, ExportTermKind};
 use crate::mm0::{Formula, MathExpr, Mm0Env, TheoremDecl};
 use crate::{Diagnostic, DiagnosticSeverity, EggbauError, PINNED_EGGLOG};
 
-/// Result of the stage-0 proof API spike.
+/// Result of the vendored egglog proof API smoke test.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct EgglogProofApiSpike {
     pub egglog_version: String,
@@ -18,7 +18,7 @@ pub struct EgglogProofApiSpike {
     pub note: String,
 }
 
-/// Stage-4 proof extraction result for one designated MM0 theorem.
+/// Proof extraction result for one designated MM0 theorem.
 ///
 /// This is intentionally egglog-neutral: the stable API exposes rendered proof
 /// diagnostics and a debug tree, not egglog's `ProofStore` internals.

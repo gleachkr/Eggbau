@@ -35,7 +35,7 @@ axiom p_from_q (x: s): $ q x $ > $ p x $;
 "#;
 
 #[test]
-fn export_env_contains_stage_three_structures() {
+fn export_env_contains_relations_terms_and_rules() {
     let env = parse_env(HORN_INPUT).unwrap();
     let export = ExportEnv::from_mm0(&env).unwrap();
 
@@ -136,7 +136,7 @@ fn generated_program_derives_simple_horn_goal() {
 
 #[test]
 fn rewrite_only_theorems_are_not_rendered_as_saturation_rules() {
-    let env = parse_env(include_str!("fixtures/stage2/input.mm0")).unwrap();
+    let env = parse_env(include_str!("fixtures/discovery/input.mm0")).unwrap();
     let export = ExportEnv::from_mm0(&env).unwrap();
     let egglog = render_egglog(&export);
 
@@ -147,7 +147,7 @@ fn rewrite_only_theorems_are_not_rendered_as_saturation_rules() {
 #[test]
 fn cli_script_emit_outputs_generated_program() {
     let output = Command::new(env!("CARGO_BIN_EXE_eggbau"))
-        .args(["script", "emit", "tests/fixtures/stage2/input.mm0"])
+        .args(["script", "emit", "tests/fixtures/discovery/input.mm0"])
         .output()
         .unwrap();
 

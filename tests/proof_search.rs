@@ -111,7 +111,7 @@ fn unprovable_goal_is_reported_as_proof_extraction_failure() {
 }
 
 #[test]
-fn public_prove_theorem_api_wraps_stage_four_result() {
+fn public_prove_theorem_api_wraps_proof_result() {
     let result = eggbau::prove_theorem(
         CONVERSION_INPUT,
         EggbauConfig {
@@ -129,16 +129,16 @@ fn public_prove_theorem_api_wraps_stage_four_result() {
             .egglog_program
             .contains("theorem-local symbolic inputs")
     );
-    assert!(result.certificate_json.get("stage4_proof").is_some());
+    assert!(result.certificate_json.get("extracted_proof").is_some());
 }
 
 #[test]
-fn cli_script_check_outputs_stage_four_json() {
-    let fixture = "tests/fixtures/stage4_conversion.mm0";
+fn cli_script_check_outputs_proof_json() {
+    let fixture = "tests/fixtures/conversion.mm0";
     let script =
         eggbau::cli::run(["eggbau", "script", "emit", fixture, "--theorem", "target"]).unwrap();
     let mut script_path = std::env::temp_dir();
-    script_path.push(format!("eggbau-stage4-script-{}.egg", std::process::id()));
+    script_path.push(format!("eggbau-proof-script-{}.egg", std::process::id()));
     std::fs::write(&script_path, script).unwrap();
 
     let output = Command::new(env!("CARGO_BIN_EXE_eggbau"))

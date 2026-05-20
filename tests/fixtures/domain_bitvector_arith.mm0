@@ -1,13 +1,13 @@
 -- Bit-vector word arithmetic fixture for poking eggbau from the CLI:
 --
---   eggbau discover tests/fixtures/stage8_bitvector_arith.mm0
---   eggbau script emit tests/fixtures/stage8_bitvector_arith.mm0 \
+--   eggbau discover tests/fixtures/domain_bitvector_arith.mm0
+--   eggbau script emit tests/fixtures/domain_bitvector_arith.mm0 \
 --       --theorem xor_cancel_chain > xor_cancel_chain.egg
---   eggbau script prove tests/fixtures/stage8_bitvector_arith.mm0 \
+--   eggbau script prove tests/fixtures/domain_bitvector_arith.mm0 \
 --       --theorem xor_cancel_chain \
 --       --script xor_cancel_chain.egg \
 --       --out xor_cancel_chain.auf
---   eggbau prove tests/fixtures/stage8_bitvector_arith.mm0 \
+--   eggbau prove tests/fixtures/domain_bitvector_arith.mm0 \
 --       --theorem sub_self --out sub_self.auf
 --
 -- The theory mixes XOR algebra (commutative, associative,

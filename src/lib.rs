@@ -28,7 +28,7 @@ pub const SUPPORTED_PROOF_JUSTIFICATIONS: &[&str] = &["Fiat", "Rule", "Trans", "
 /// Proof justifications that are known but not accepted by v1 reconstruction.
 pub const REJECTED_PROOF_JUSTIFICATIONS: &[&str] = &["MergeFn"];
 
-/// Assertion metadata forms consumed by the first eggbau stages.
+/// Assertion metadata forms consumed by eggbau export.
 pub const SUPPORTED_METADATA_FORMS: &[&str] = &[
     "@saturation ltr",
     "@saturation rtl",
@@ -71,7 +71,7 @@ impl ProofTarget {
     }
 }
 
-/// Placeholder result shape for the staged implementation.
+/// Result shape for the high-level proof pipeline.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ProveResult {
     pub auf: String,
@@ -196,8 +196,8 @@ pub(crate) fn prove_theorem_with_auf_format(
         serde_json::to_value(certificate).expect("certificate should serialize to JSON");
     if let serde_json::Value::Object(object) = &mut certificate_json {
         object.insert(
-            "stage4_proof".to_owned(),
-            serde_json::to_value(&proof).expect("stage4 proof should serialize"),
+            "extracted_proof".to_owned(),
+            serde_json::to_value(&proof).expect("extracted proof should serialize"),
         );
     }
 
@@ -522,8 +522,8 @@ fn certificate_json_value(
         serde_json::to_value(certificate).expect("certificate should serialize to JSON");
     if let serde_json::Value::Object(object) = &mut certificate_json {
         object.insert(
-            "stage4_proof".to_owned(),
-            serde_json::to_value(proof).expect("stage4 proof should serialize"),
+            "extracted_proof".to_owned(),
+            serde_json::to_value(proof).expect("extracted proof should serialize"),
         );
     }
     certificate_json

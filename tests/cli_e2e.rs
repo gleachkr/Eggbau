@@ -126,6 +126,6 @@ fn command_available(name: &str) -> bool {
 
 fn temp_path(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("target/cli_stage10")
+        .join("target/cli_e2e")
         .join(format!("{}_{}", std::process::id(), name))
 }

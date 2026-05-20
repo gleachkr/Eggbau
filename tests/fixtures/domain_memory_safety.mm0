@@ -1,16 +1,16 @@
 -- Memory-safety / pointer-reasoning fixture for poking eggbau from the CLI:
 --
---   eggbau discover tests/fixtures/stage8_memory_safety.mm0
---   eggbau script emit tests/fixtures/stage8_memory_safety.mm0 \
+--   eggbau discover tests/fixtures/domain_memory_safety.mm0
+--   eggbau script emit tests/fixtures/domain_memory_safety.mm0 \
 --       --theorem writable_at_offset_zero > writable_at_offset_zero.egg
---   eggbau script prove tests/fixtures/stage8_memory_safety.mm0 \
+--   eggbau script prove tests/fixtures/domain_memory_safety.mm0 \
 --       --theorem writable_at_offset_zero \
 --       --script writable_at_offset_zero.egg \
 --       --out writable_at_offset_zero.auf
---   eggbau prove tests/fixtures/stage8_memory_safety.mm0 \
+--   eggbau prove tests/fixtures/domain_memory_safety.mm0 \
 --       --theorem readable_chain_modulo_eq --out readable_chain_modulo_eq.auf
 --
--- This is the PCC/RISC-V-flavoured Horn theory sketched in PLAN.md:
+-- This is the PCC/RISC-V-flavoured Horn theory used as a domain fixture:
 -- `in_frame` and `aligned` together establish `writable`, `writable`
 -- implies `readable`, and the whole stack should also work modulo
 -- addr_eq / size_eq using @congr against the wff biconditional `bi` plus

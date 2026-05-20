@@ -7,11 +7,11 @@ use serde::{Deserialize, Serialize};
 use crate::mm0::{Formula, MathExpr, Mm0Env, SaturationMode, TermDecl, TheoremDecl};
 use crate::{EggbauError, mm0};
 
-/// Stage-0 discovery deliberately authorizes nothing.
+/// Empty discovery deliberately authorizes nothing.
 ///
-/// Later stages will parse MM0 and suggest `@saturation` annotations.  For now
-/// this deterministic output gives the snapshot harness something meaningful to
-/// compare without implying any theorem has been exported to egglog.
+/// This deterministic output gives the snapshot harness something
+/// meaningful to compare without implying any theorem has been exported to
+/// egglog.
 pub fn render_empty_discovery(path: &Path, _mm0: &str) -> String {
     format!(
         "discovery report\ninput: {}\n\npossible saturation conversions:\n\

@@ -229,7 +229,7 @@ fn proves_leibniz_sum_rule_core() {
     assert!(auf.contains("by lim_add"));
     assert!(auf.contains("by add_congr"));
     assert!(auf.contains("["));
-    verify_with_external_tools("stage8_leibniz_sum", LEIBNIZ_SUM_RULE_CORE_INPUT, &auf);
+    verify_with_external_tools("reference_leibniz_sum", LEIBNIZ_SUM_RULE_CORE_INPUT, &auf);
 }
 
 #[test]
@@ -241,7 +241,7 @@ fn proves_leibniz_constant_multiple_rule_core() {
     assert!(auf.contains("by lim_mul"));
     assert!(auf.contains("by lim_const"));
     verify_with_external_tools(
-        "stage8_leibniz_const_mul",
+        "reference_leibniz_const_mul",
         LEIBNIZ_CONST_MUL_CORE_INPUT,
         &auf,
     );
@@ -256,7 +256,7 @@ fn proves_leibniz_product_rule_body_core() {
     assert!(auf.contains("by div_mul"));
     assert!(auf.contains("by add_congr"));
     verify_with_external_tools(
-        "stage8_leibniz_product_body",
+        "reference_leibniz_product_body",
         LEIBNIZ_PRODUCT_BODY_CORE_INPUT,
         &auf,
     );
@@ -272,7 +272,7 @@ fn proves_leibniz_product_rule_limit_distribution_core() {
     assert!(auf.contains("by eq_refl"));
     assert!(auf.contains("$ eq (lim (div (mul fh (sub gh g)) h))"));
     verify_with_external_tools(
-        "stage8_leibniz_product_limit",
+        "reference_leibniz_product_limit",
         LEIBNIZ_PRODUCT_LIMIT_CORE_INPUT,
         &auf,
     );
@@ -284,7 +284,7 @@ fn proves_theory_with_acui_term_annotation() {
 
     assert!(auf.contains("by ctx_idem"));
     assert!(auf.contains("by join_congr"));
-    verify_with_external_tools("stage8_acui_annotated", ACUI_ANNOTATED_CTX_INPUT, &auf);
+    verify_with_external_tools("reference_acui_annotated", ACUI_ANNOTATED_CTX_INPUT, &auf);
 }
 
 fn verify_with_external_tools(name: &str, mm0: &str, auf: &str) {

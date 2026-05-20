@@ -69,7 +69,7 @@ fn prove_accepts_explicit_and_implicit_format_options() {
         let output = eggbau::cli::run([
             "eggbau".to_owned(),
             "prove".to_owned(),
-            "tests/fixtures/stage4_conversion.mm0".to_owned(),
+            "tests/fixtures/conversion.mm0".to_owned(),
             "--theorem".to_owned(),
             "target".to_owned(),
             "--format".to_owned(),

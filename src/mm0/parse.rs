@@ -1514,7 +1514,7 @@ mod tests {
     use crate::mm0::SaturationMode;
 
     #[test]
-    fn parses_stage_one_fixture_shapes() {
+    fn parses_metadata_fixture_shapes() {
         let input = r#"
 sort bv64;
 provable sort wff;

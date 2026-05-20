@@ -201,7 +201,7 @@ fn prove_auf(input: &str) -> String {
 
 #[test]
 fn cli_prove_implicit_format_omits_binder_assignments() {
-    let dir = temp_test_dir("stage8_implicit_format");
+    let dir = temp_test_dir("auf_implicit_format");
     fs::create_dir_all(&dir).unwrap();
     let mm0_path = dir.join("input.mm0");
     fs::write(&mm0_path, CONGR_INPUT).unwrap();
@@ -220,7 +220,7 @@ fn cli_prove_implicit_format_omits_binder_assignments() {
     assert!(auf.contains("by f_id ["));
     assert!(auf.contains("by h_congr [rule_2]"));
     assert!(!auf.contains(":="));
-    verify_with_external_tools("stage8_implicit_format", CONGR_INPUT, &auf);
+    verify_with_external_tools("auf_implicit_format", CONGR_INPUT, &auf);
 }
 
 #[test]
@@ -262,13 +262,13 @@ fn rejects_non_fragment_modes_with_stream_order_diagnostic() {
 
 #[test]
 fn generated_congruence_fragment_verifies_when_tools_are_available() {
-    verify_with_external_tools("stage8_congr", CONGR_INPUT, &prove_auf(CONGR_INPUT));
+    verify_with_external_tools("auf_congr", CONGR_INPUT, &prove_auf(CONGR_INPUT));
 }
 
 #[test]
 fn generated_horn_modulo_equality_fragment_verifies_when_tools_are_available() {
     verify_with_external_tools(
-        "stage8_horn_mod_eq",
+        "auf_horn_mod_eq",
         HORN_MOD_EQ_INPUT,
         &prove_auf(HORN_MOD_EQ_INPUT),
     );
@@ -281,7 +281,7 @@ fn verifies_group_inverse_algebra_fragment() {
     assert!(auf.contains("by inv_inv"));
     assert!(auf.contains("by inv_congr"));
     assert_eq!(auf, prove_auf(GROUP_INVERSE_INPUT));
-    verify_with_external_tools("stage8_group_inverse", GROUP_INVERSE_INPUT, &auf);
+    verify_with_external_tools("auf_group_inverse", GROUP_INVERSE_INPUT, &auf);
 }
 
 #[test]
@@ -291,7 +291,7 @@ fn verifies_propositional_double_negation_fragment() {
     assert!(auf.contains("by double_neg"));
     assert!(auf.contains("by not_congr"));
     assert!(auf.contains("by iff_trans"));
-    verify_with_external_tools("stage8_prop_double_neg", PROPOSITIONAL_INPUT, &auf);
+    verify_with_external_tools("auf_prop_double_neg", PROPOSITIONAL_INPUT, &auf);
 }
 
 #[test]
@@ -302,7 +302,7 @@ fn verifies_linarith_style_normalization_fragment() {
     assert!(auf.contains("by add0_congr"));
     assert!(auf.contains("$ eq (add0 (add0 x)) x $"));
     verify_with_external_tools(
-        "stage8_linarith_normalization",
+        "auf_linarith_normalization",
         LINARITH_NORMALIZATION_INPUT,
         &auf,
     );
@@ -315,7 +315,7 @@ fn verifies_binary_congruence_with_synthesized_reflexivity() {
     assert!(auf.contains("by pair_congr"));
     assert!(auf.contains("by eq_refl (x := $ y $)"));
     assert!(auf.contains("[rule_2, eq_congr_3__refl_1]"));
-    verify_with_external_tools("stage8_binary_congr_left", BINARY_CONGR_LEFT_INPUT, &auf);
+    verify_with_external_tools("auf_binary_congr_left", BINARY_CONGR_LEFT_INPUT, &auf);
 }
 
 #[test]
@@ -325,7 +325,7 @@ fn verifies_binary_congruence_when_second_argument_changes() {
     assert!(auf.contains("by pair_congr"));
     assert!(auf.contains("by eq_refl (x := $ y $)"));
     assert!(auf.contains("[eq_congr_3__refl_0, rule_2]"));
-    verify_with_external_tools("stage8_binary_congr_right", BINARY_CONGR_RIGHT_INPUT, &auf);
+    verify_with_external_tools("auf_binary_congr_right", BINARY_CONGR_RIGHT_INPUT, &auf);
 }
 
 #[test]
@@ -336,7 +336,7 @@ fn verifies_cross_sort_binary_fact_congruence() {
     assert!(auf.contains("by eq_refl (x := $ y $)"));
     assert!(auf.contains("by bi_mp"));
     verify_with_external_tools(
-        "stage8_cross_sort_fact_congr",
+        "auf_cross_sort_fact_congr",
         CROSS_SORT_FACT_CONGR_INPUT,
         &auf,
     );
@@ -350,7 +350,7 @@ fn verifies_cross_sort_term_congruence() {
     assert!(auf.contains("by len_congr"));
     assert!(auf.contains("$ neq (len (normalize x)) (len x) $"));
     verify_with_external_tools(
-        "stage8_cross_sort_term_congr",
+        "auf_cross_sort_term_congr",
         CROSS_SORT_TERM_CONGR_INPUT,
         &auf,
     );

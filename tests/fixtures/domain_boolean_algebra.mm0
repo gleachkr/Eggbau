@@ -1,13 +1,13 @@
 -- Boolean algebra fixture for poking eggbau from the CLI:
 --
---   eggbau discover tests/fixtures/stage8_boolean_algebra.mm0
---   eggbau script emit tests/fixtures/stage8_boolean_algebra.mm0 \
+--   eggbau discover tests/fixtures/domain_boolean_algebra.mm0
+--   eggbau script emit tests/fixtures/domain_boolean_algebra.mm0 \
 --       --theorem consensus_or_factor > consensus_or_factor.egg
---   eggbau script prove tests/fixtures/stage8_boolean_algebra.mm0 \
+--   eggbau script prove tests/fixtures/domain_boolean_algebra.mm0 \
 --       --theorem consensus_or_factor \
 --       --script consensus_or_factor.egg \
 --       --out consensus_or_factor.auf
---   eggbau prove tests/fixtures/stage8_boolean_algebra.mm0 \
+--   eggbau prove tests/fixtures/domain_boolean_algebra.mm0 \
 --       --theorem shannon --out shannon.auf
 --
 -- The axiom set is a "bog standard" equational boolean algebra: ACI for

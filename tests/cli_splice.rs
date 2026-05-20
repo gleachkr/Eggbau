@@ -220,7 +220,7 @@ fn base_splice_reports_parse_errors_for_malformed_public_blocks() {
 }
 
 fn temp_path(name: &str) -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/cli_stage9");
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/cli_splice");
     std::fs::create_dir_all(&dir).unwrap();
     dir.join(format!("{}_{}", std::process::id(), name))
 }

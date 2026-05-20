@@ -139,7 +139,7 @@ set explicit tool paths:
 ```sh
 EGGBAU_ABC=/path/to/abc \
 EGGBAU_MM0_ZIG=/path/to/mm0-zig \
-CARGO_HOME="$PWD/.cargo_home" cargo test --test cli_stage10
+CARGO_HOME="$PWD/.cargo_home" cargo test --test cli_e2e
 ```
 
 If the tools are unavailable, those tests print a skip message and return.

@@ -57,7 +57,7 @@ fn write_temp_mm0(name: &str, contents: &str) -> PathBuf {
 }
 
 fn write_temp_file(name: &str, contents: &str) -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/cli_stage5");
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/cli_list");
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join(format!("{name}_{}.txt", std::process::id()));
     std::fs::write(&path, contents).unwrap();

@@ -1041,7 +1041,7 @@ mod tests {
     use crate::mm0::parse_env;
 
     #[test]
-    fn renders_stage_three_smoke_program() {
+    fn renders_smoke_program() {
         let env = parse_env(
             r#"
 sort s;

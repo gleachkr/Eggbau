@@ -133,7 +133,7 @@ fn proves_and_top_via_commutativity() {
     let auf = prove_auf(decl);
     assert!(auf.contains("by and_top"));
     assert!(auf.contains("by and_comm"));
-    verify("stage8_bool_and_top", decl, &auf);
+    verify("domain_bool_and_top", decl, &auf);
 }
 
 #[test]
@@ -142,7 +142,7 @@ fn proves_or_annihilation_via_commutativity() {
     let auf = prove_auf(decl);
     assert!(auf.contains("by or_top"));
     assert!(auf.contains("by or_comm"));
-    verify("stage8_bool_or_top", decl, &auf);
+    verify("domain_bool_or_top", decl, &auf);
 }
 
 #[test]
@@ -150,7 +150,7 @@ fn proves_double_negation() {
     let decl = "\ntheorem target (x: bool): $ eq (not (not x)) x $;\n";
     let auf = prove_auf(decl);
     assert!(auf.contains("by not_not"));
-    verify("stage8_bool_not_not", decl, &auf);
+    verify("domain_bool_not_not", decl, &auf);
 }
 
 #[test]
@@ -158,7 +158,7 @@ fn proves_de_morgan_for_conjunction() {
     let decl = "\ntheorem target (x y: bool):\n  $ eq (not (and x y)) (or (not x) (not y)) $;\n";
     let auf = prove_auf(decl);
     assert!(auf.contains("by demorgan_and"));
-    verify("stage8_bool_demorgan_and", decl, &auf);
+    verify("domain_bool_demorgan_and", decl, &auf);
 }
 
 #[test]
@@ -166,7 +166,7 @@ fn proves_absorption_law() {
     let decl = "\ntheorem target (x y: bool): $ eq (or x (and x y)) x $;\n";
     let auf = prove_auf(decl);
     assert!(auf.contains("by or_absorb"));
-    verify("stage8_bool_absorb", decl, &auf);
+    verify("domain_bool_absorb", decl, &auf);
 }
 
 #[test]
@@ -179,7 +179,7 @@ fn proves_consensus_via_or_factor() {
     let auf = prove_auf(decl);
     assert!(auf.contains("by or_factor"));
     assert!(auf.contains("by or_compl"));
-    verify("stage8_bool_consensus_or_factor", decl, &auf);
+    verify("domain_bool_consensus_or_factor", decl, &auf);
 }
 
 #[test]
@@ -192,7 +192,7 @@ fn proves_consensus_via_and_factor() {
     let auf = prove_auf(decl);
     assert!(auf.contains("by and_factor"));
     assert!(auf.contains("by and_compl"));
-    verify("stage8_bool_consensus_and_factor", decl, &auf);
+    verify("domain_bool_consensus_and_factor", decl, &auf);
 }
 
 #[test]
@@ -205,7 +205,7 @@ fn proves_chained_de_morgan() {
     let auf = prove_auf(decl);
     assert!(auf.contains("by demorgan_or"));
     assert!(auf.contains("by demorgan_and"));
-    verify("stage8_bool_chained_demorgan", decl, &auf);
+    verify("domain_bool_chained_demorgan", decl, &auf);
 }
 
 #[test]
@@ -219,7 +219,7 @@ fn proves_shannon_expansion() {
     let auf = prove_auf(decl);
     assert!(auf.contains("by or_factor"));
     assert!(auf.contains("by or_compl"));
-    verify("stage8_bool_shannon", decl, &auf);
+    verify("domain_bool_shannon", decl, &auf);
 }
 
 #[test]
@@ -228,11 +228,11 @@ fn verifies_implicit_chained_de_morgan() {
         "\ntheorem target (x y z: bool):\n",
         "  $ eq (not (or x (and y z))) (and (not x) (or (not y) (not z))) $;\n",
     );
-    let auf = prove_implicit_auf("stage8_bool_implicit_demorgan", decl);
+    let auf = prove_implicit_auf("domain_bool_implicit_demorgan", decl);
     assert!(auf.contains("by demorgan_or"));
     assert!(auf.contains("by demorgan_and"));
     assert!(!auf.contains(":="));
-    verify("stage8_bool_implicit_demorgan", decl, &auf);
+    verify("domain_bool_implicit_demorgan", decl, &auf);
 }
 
 #[test]
@@ -241,11 +241,11 @@ fn verifies_implicit_shannon_expansion() {
         "\ntheorem target (x y: bool):\n",
         "  $ eq x (or (and y x) (and (not y) x)) $;\n",
     );
-    let auf = prove_implicit_auf("stage8_bool_implicit_shannon", decl);
+    let auf = prove_implicit_auf("domain_bool_implicit_shannon", decl);
     assert!(auf.contains("by or_factor"));
     assert!(auf.contains("by or_compl"));
     assert!(!auf.contains(":="));
-    verify("stage8_bool_implicit_shannon", decl, &auf);
+    verify("domain_bool_implicit_shannon", decl, &auf);
 }
 
 #[test]
@@ -257,7 +257,7 @@ fn proves_complement_of_compound() {
     );
     let auf = prove_auf(decl);
     assert!(auf.contains("by and_compl") || auf.contains("by and_comm"));
-    verify("stage8_bool_compound_compl", decl, &auf);
+    verify("domain_bool_compound_compl", decl, &auf);
 }
 
 fn verify_with_external_tools(name: &str, mm0: &str, auf: &str) {

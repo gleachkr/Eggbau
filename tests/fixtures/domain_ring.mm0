@@ -1,13 +1,13 @@
 -- Commutative ring fixture for poking eggbau from the CLI:
 --
---   eggbau discover tests/fixtures/stage8_ring.mm0
---   eggbau script emit tests/fixtures/stage8_ring.mm0 \
+--   eggbau discover tests/fixtures/domain_ring.mm0
+--   eggbau script emit tests/fixtures/domain_ring.mm0 \
 --       --theorem difference_of_squares > difference_of_squares.egg
---   eggbau script prove tests/fixtures/stage8_ring.mm0 \
+--   eggbau script prove tests/fixtures/domain_ring.mm0 \
 --       --theorem difference_of_squares \
 --       --script difference_of_squares.egg \
 --       --out difference_of_squares.auf
---   eggbau prove tests/fixtures/stage8_ring.mm0 \
+--   eggbau prove tests/fixtures/domain_ring.mm0 \
 --       --theorem neg_mul_neg --out neg_mul_neg.auf
 --
 -- The axioms are a standard equational commutative ring: additive abelian

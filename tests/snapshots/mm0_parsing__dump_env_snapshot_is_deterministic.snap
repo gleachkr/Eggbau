@@ -1,7 +1,7 @@
 ---
-source: tests/stage1.rs
-assertion_line: 54
-expression: "String::from_utf8(output.stdout).unwrap()"
+source: tests/mm0_parsing.rs
+assertion_line: 45
+expression: output
 ---
 {
   "sorts": [

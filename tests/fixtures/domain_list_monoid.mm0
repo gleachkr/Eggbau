@@ -1,13 +1,13 @@
 -- List monoid + cross-sort length fixture for poking eggbau from the CLI:
 --
---   eggbau discover tests/fixtures/stage8_list_monoid.mm0
---   eggbau script emit tests/fixtures/stage8_list_monoid.mm0 \
+--   eggbau discover tests/fixtures/domain_list_monoid.mm0
+--   eggbau script emit tests/fixtures/domain_list_monoid.mm0 \
 --       --theorem length_rev_app > length_rev_app.egg
---   eggbau script prove tests/fixtures/stage8_list_monoid.mm0 \
+--   eggbau script prove tests/fixtures/domain_list_monoid.mm0 \
 --       --theorem length_rev_app \
 --       --script length_rev_app.egg \
 --       --out length_rev_app.auf
---   eggbau prove tests/fixtures/stage8_list_monoid.mm0 \
+--   eggbau prove tests/fixtures/domain_list_monoid.mm0 \
 --       --theorem rev_rev_under_app --out rev_rev_under_app.auf
 --
 -- This is a free-monoid view of lists: `app` is associative with `nil` as

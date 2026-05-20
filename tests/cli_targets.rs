@@ -4,7 +4,7 @@ use std::process::{Command, Stdio};
 
 use eggbau::cli::{TargetSpec, parse_target_lines};
 
-const FIXTURE: &str = "tests/fixtures/stage4_conversion.mm0";
+const FIXTURE: &str = "tests/fixtures/conversion.mm0";
 const MULTI_FIXTURE: &str = "tests/fixtures/cli_multi.mm0";
 
 #[test]
@@ -130,7 +130,7 @@ fn duplicate_target_file_entries_are_rejected() {
 }
 
 fn write_temp_file(name: &str, contents: &str) -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/cli_stage2");
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/cli_targets");
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join(format!("{name}_{}.txt", std::process::id()));
     std::fs::write(&path, contents).unwrap();

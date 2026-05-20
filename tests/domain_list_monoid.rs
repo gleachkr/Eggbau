@@ -116,7 +116,7 @@ fn proves_app_nil_right_collapse() {
     let decl = "\ntheorem target (xs: list): $ list_eq (app xs nil) xs $;\n";
     let auf = prove_auf(decl);
     assert!(auf.contains("by app_nil_r"));
-    verify("stage8_list_app_nil_r", decl, &auf);
+    verify("domain_list_app_nil_r", decl, &auf);
 }
 
 #[test]
@@ -128,7 +128,7 @@ fn proves_rev_rev_under_app() {
     let auf = prove_auf(decl);
     assert!(auf.contains("by rev_rev"));
     assert!(auf.contains("by app_congr"));
-    verify("stage8_list_rev_rev_app", decl, &auf);
+    verify("domain_list_rev_rev_app", decl, &auf);
 }
 
 #[test]
@@ -139,7 +139,7 @@ fn proves_rev_app_swap_direct() {
     );
     let auf = prove_auf(decl);
     assert!(auf.contains("by rev_app"));
-    verify("stage8_list_rev_app_swap", decl, &auf);
+    verify("domain_list_rev_app_swap", decl, &auf);
 }
 
 #[test]
@@ -152,7 +152,7 @@ fn proves_length_app_nil_right_via_cross_sort_congr() {
     // cross-sort: list_eq fact about app xs nil → nat_eq about length
     assert!(auf.contains("by length_congr") || auf.contains("by length_app"));
     assert!(auf.contains("by app_nil_r") || auf.contains("by length_nil"));
-    verify("stage8_list_length_app_nil", decl, &auf);
+    verify("domain_list_length_app_nil", decl, &auf);
 }
 
 #[test]
@@ -167,7 +167,7 @@ fn proves_length_rev_app_combined() {
     let auf = prove_auf(decl);
     assert!(auf.contains("by length_app"));
     assert!(auf.contains("by length_rev"));
-    verify("stage8_list_length_rev_app", decl, &auf);
+    verify("domain_list_length_rev_app", decl, &auf);
 }
 
 #[test]
@@ -180,7 +180,7 @@ fn proves_length_two_cons_is_two() {
     let auf = prove_auf(decl);
     assert!(auf.contains("by length_cons"));
     assert!(auf.contains("by length_nil"));
-    verify("stage8_list_length_two_cons", decl, &auf);
+    verify("domain_list_length_two_cons", decl, &auf);
 }
 
 #[test]
@@ -193,7 +193,7 @@ fn proves_length_cons_app() {
     let auf = prove_auf(decl);
     assert!(auf.contains("by length_app"));
     assert!(auf.contains("by length_cons"));
-    verify("stage8_list_length_cons_app", decl, &auf);
+    verify("domain_list_length_cons_app", decl, &auf);
 }
 
 #[test]
@@ -206,12 +206,12 @@ fn proves_rev_three_app_assoc() {
     );
     let auf = prove_auf(decl);
     assert!(auf.contains("by rev_app"));
-    verify("stage8_list_rev_three_app", decl, &auf);
+    verify("domain_list_rev_three_app", decl, &auf);
 }
 
 #[test]
 fn fixture_file_axioms_match_embedded_axioms() {
-    let fixture = include_str!("fixtures/stage8_list_monoid.mm0");
+    let fixture = include_str!("fixtures/domain_list_monoid.mm0");
     for axiom_name in [
         "app_nil_r",
         "rev_app",

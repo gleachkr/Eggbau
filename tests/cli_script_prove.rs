@@ -2,7 +2,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
-const CONVERSION_FIXTURE: &str = "tests/fixtures/stage4_conversion.mm0";
+const CONVERSION_FIXTURE: &str = "tests/fixtures/conversion.mm0";
 
 #[test]
 fn script_prove_emitted_script_to_file() {
@@ -175,7 +175,7 @@ fn emit_target_script() -> String {
 }
 
 fn temp_path(name: &str) -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/cli_stage8");
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/cli_script_prove");
     std::fs::create_dir_all(&dir).unwrap();
     dir.join(format!("{}_{}", std::process::id(), name))
 }

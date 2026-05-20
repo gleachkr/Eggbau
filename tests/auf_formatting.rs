@@ -171,7 +171,7 @@ theorem target (x: s): $ eq x x $;
 
 #[test]
 fn lint_reports_malformed_metadata() {
-    let path = temp_file("stage12_bad_metadata.mm0");
+    let path = temp_file("auf_format_bad_metadata.mm0");
     fs::write(
         &path,
         r#"

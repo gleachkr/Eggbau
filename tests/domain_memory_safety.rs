@@ -95,7 +95,7 @@ fn proves_writable_directly_from_horn() {
     );
     let auf = prove_auf(decl);
     assert!(auf.contains("by writable_from_frame_aligned"));
-    verify("stage8_mem_writable_direct", decl, &auf);
+    verify("domain_mem_writable_direct", decl, &auf);
 }
 
 #[test]
@@ -107,7 +107,7 @@ fn proves_readable_via_horn_chain() {
     let auf = prove_auf(decl);
     assert!(auf.contains("by writable_from_frame_aligned"));
     assert!(auf.contains("by readable_from_writable"));
-    verify("stage8_mem_readable_chain", decl, &auf);
+    verify("domain_mem_readable_chain", decl, &auf);
 }
 
 #[test]
@@ -120,7 +120,7 @@ fn proves_writable_modulo_addr_eq() {
     assert!(auf.contains("by writable_from_frame_aligned"));
     assert!(auf.contains("by writable_congr"));
     assert!(auf.contains("by bi_mp"));
-    verify("stage8_mem_writable_modulo_eq", decl, &auf);
+    verify("domain_mem_writable_modulo_eq", decl, &auf);
 }
 
 #[test]
@@ -134,7 +134,7 @@ fn proves_writable_with_offset_zero_normalisation() {
     let auf = prove_auf(decl);
     assert!(auf.contains("by offset_zero"));
     assert!(auf.contains("by writable_from_frame_aligned"));
-    verify("stage8_mem_writable_offset_zero", decl, &auf);
+    verify("domain_mem_writable_offset_zero", decl, &auf);
 }
 
 #[test]
@@ -150,7 +150,7 @@ fn proves_readable_chain_modulo_addr_and_size_eq() {
     assert!(auf.contains("by readable_from_writable"));
     assert!(auf.contains("by readable_congr"));
     assert!(auf.contains("by bi_mp"));
-    verify("stage8_mem_readable_modulo_eq", decl, &auf);
+    verify("domain_mem_readable_modulo_eq", decl, &auf);
 }
 
 #[test]
@@ -164,12 +164,12 @@ fn proves_writable_through_nested_offset_zeros() {
     let auf = prove_auf(decl);
     assert!(auf.contains("by offset_zero"));
     assert!(auf.contains("by writable_from_frame_aligned"));
-    verify("stage8_mem_writable_nested_offsets", decl, &auf);
+    verify("domain_mem_writable_nested_offsets", decl, &auf);
 }
 
 #[test]
 fn fixture_file_axioms_match_embedded_axioms() {
-    let fixture = include_str!("fixtures/stage8_memory_safety.mm0");
+    let fixture = include_str!("fixtures/domain_memory_safety.mm0");
     for axiom_name in [
         "writable_from_frame_aligned",
         "readable_from_writable",

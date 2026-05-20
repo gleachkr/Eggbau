@@ -103,7 +103,7 @@ fn prove_writes_to_file_when_out_is_supplied() {
 }
 
 fn temp_path(name: &str) -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/cli_stage3");
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/cli_ordering");
     std::fs::create_dir_all(&dir).unwrap();
     dir.join(format!("{}_{}", std::process::id(), name))
 }

@@ -3,11 +3,11 @@ mod common;
 use eggbau::export::ExportEnv;
 use eggbau::mm0::{MathExpr, NotationKind, SaturationMode, parse_env};
 
-const STAGE1_INPUT: &str = include_str!("fixtures/stage1/input.mm0");
+const MM0_PARSING_INPUT: &str = include_str!("fixtures/mm0_parsing/input.mm0");
 
 #[test]
 fn parses_declarations_and_metadata() {
-    let env = parse_env(STAGE1_INPUT).unwrap();
+    let env = parse_env(MM0_PARSING_INPUT).unwrap();
 
     assert_eq!(
         env.sorts
@@ -39,7 +39,7 @@ fn parses_declarations_and_metadata() {
 
 #[test]
 fn dump_env_snapshot_is_deterministic() {
-    let env = parse_env(STAGE1_INPUT).unwrap();
+    let env = parse_env(MM0_PARSING_INPUT).unwrap();
     let output = serde_json::to_string_pretty(&env).unwrap() + "\n";
 
     insta::assert_snapshot!(output);
@@ -47,7 +47,7 @@ fn dump_env_snapshot_is_deterministic() {
 
 #[test]
 fn theorem_json_can_be_rendered_for_a_designated_theorem() {
-    let env = parse_env(STAGE1_INPUT).unwrap();
+    let env = parse_env(MM0_PARSING_INPUT).unwrap();
     let theorem = env.theorem("bv_add_zero").unwrap();
     let output = serde_json::to_string_pretty(theorem).unwrap();
 

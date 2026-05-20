@@ -104,7 +104,7 @@ fn generated_local_lemma_block_compiles_with_abc_when_available() {
     ])
     .unwrap();
 
-    let dir = temp_dir("cli_stage4_local_lemma");
+    let dir = temp_dir("cli_local_lemmas_local_lemma");
     std::fs::create_dir_all(&dir).unwrap();
     let mm0_path = dir.join("input.mm0");
     let auf_path = dir.join("generated.auf");

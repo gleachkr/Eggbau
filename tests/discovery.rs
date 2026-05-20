@@ -7,11 +7,11 @@ use eggbau::discover::{DiscoveryReport, validate_metadata};
 use eggbau::export::ExportEnv;
 use eggbau::mm0::parse_env;
 
-const STAGE2_INPUT: &str = include_str!("fixtures/stage2/input.mm0");
+const DISCOVERY_INPUT: &str = include_str!("fixtures/discovery/input.mm0");
 
 #[test]
 fn discovers_conversion_horn_and_congruence_candidates() {
-    let env = parse_env(STAGE2_INPUT).unwrap();
+    let env = parse_env(DISCOVERY_INPUT).unwrap();
     let report = DiscoveryReport::from_env(&env);
 
     assert_eq!(
@@ -30,15 +30,15 @@ fn discovers_conversion_horn_and_congruence_candidates() {
 #[test]
 fn discover_rendering_is_deterministic_and_suggests_annotations() {
     let output = eggbau::discover::render_discovery(
-        Path::new("tests/fixtures/stage2/input.mm0"),
-        STAGE2_INPUT,
+        Path::new("tests/fixtures/discovery/input.mm0"),
+        DISCOVERY_INPUT,
         true,
     )
     .unwrap();
 
     let expected = concat!(
         "discovery report\n",
-        "input: tests/fixtures/stage2/input.mm0\n",
+        "input: tests/fixtures/discovery/input.mm0\n",
         "\n",
         "possible saturation conversions:\n",
         "  f_id: eq (f x) x\n",
@@ -155,7 +155,7 @@ fn cli_discover_supports_suggest_annotations() {
     let output = Command::new(env!("CARGO_BIN_EXE_eggbau"))
         .args([
             "discover",
-            "tests/fixtures/stage2/input.mm0",
+            "tests/fixtures/discovery/input.mm0",
             "--suggest-annotations",
         ])
         .output()
@@ -300,7 +300,7 @@ axiom eq_sym (x y: s): $ eq x y $ > $ eq y x $;
 
 #[test]
 fn rewrite_only_theorem_is_not_exported_without_saturation() {
-    let env = parse_env(STAGE2_INPUT).unwrap();
+    let env = parse_env(DISCOVERY_INPUT).unwrap();
     let export = ExportEnv::from_mm0(&env).unwrap();
 
     assert!(

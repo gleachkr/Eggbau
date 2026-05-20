@@ -122,7 +122,7 @@ fn proves_sub_self_is_zero() {
     let auf = prove_auf(decl);
     assert!(auf.contains("by sub_def"));
     assert!(auf.contains("by add_neg"));
-    verify("stage8_ring_sub_self", decl, &auf);
+    verify("domain_ring_sub_self", decl, &auf);
 }
 
 #[test]
@@ -132,7 +132,7 @@ fn proves_sub_zero() {
     assert!(auf.contains("by sub_def"));
     assert!(auf.contains("by neg_zero"));
     assert!(auf.contains("by add_zero"));
-    verify("stage8_ring_sub_zero", decl, &auf);
+    verify("domain_ring_sub_zero", decl, &auf);
 }
 
 #[test]
@@ -141,7 +141,7 @@ fn proves_zero_sub_is_neg() {
     let auf = prove_auf(decl);
     assert!(auf.contains("by sub_def"));
     assert!(auf.contains("by zero_add"));
-    verify("stage8_ring_zero_sub", decl, &auf);
+    verify("domain_ring_zero_sub", decl, &auf);
 }
 
 #[test]
@@ -152,7 +152,7 @@ fn proves_mul_neg_one_is_neg() {
     let auf = prove_auf(decl);
     assert!(auf.contains("by neg_mul_l") || auf.contains("by neg_mul_r"));
     assert!(auf.contains("by one_mul") || auf.contains("by mul_one"));
-    verify("stage8_ring_mul_neg_one", decl, &auf);
+    verify("domain_ring_mul_neg_one", decl, &auf);
 }
 
 #[test]
@@ -162,7 +162,7 @@ fn proves_neg_mul_neg_is_mul() {
     let auf = prove_auf(decl);
     assert!(auf.contains("by neg_mul_l") || auf.contains("by neg_mul_r"));
     assert!(auf.contains("by neg_neg"));
-    verify("stage8_ring_neg_mul_neg", decl, &auf);
+    verify("domain_ring_neg_mul_neg", decl, &auf);
 }
 
 #[test]
@@ -170,7 +170,7 @@ fn proves_add_sub_cancel() {
     let decl = "\ntheorem target (x y: R): $ eq (add x (sub y x)) y $;\n";
     let auf = prove_auf(decl);
     assert!(auf.contains("by sub_def"));
-    verify("stage8_ring_add_sub_cancel", decl, &auf);
+    verify("domain_ring_add_sub_cancel", decl, &auf);
 }
 
 #[test]
@@ -183,7 +183,7 @@ fn proves_distrib_over_sub() {
     let auf = prove_auf(decl);
     assert!(auf.contains("by sub_def"));
     assert!(auf.contains("by factor_l") || auf.contains("by neg_mul_r"));
-    verify("stage8_ring_distrib_sub", decl, &auf);
+    verify("domain_ring_distrib_sub", decl, &auf);
 }
 
 #[test]
@@ -197,7 +197,7 @@ fn proves_difference_of_squares() {
     let auf = prove_auf(decl);
     assert!(auf.contains("by sub_def"));
     assert!(auf.contains("by factor_l") || auf.contains("by factor_r"));
-    verify("stage8_ring_difference_of_squares", decl, &auf);
+    verify("domain_ring_difference_of_squares", decl, &auf);
 }
 
 #[test]
@@ -207,11 +207,11 @@ fn verifies_implicit_difference_of_squares() {
         "  $ eq (mul (add a b) (sub a b))\n",
         "       (sub (mul a a) (mul b b)) $;\n",
     );
-    let auf = prove_implicit_auf("stage8_ring_implicit_difference", decl);
+    let auf = prove_implicit_auf("domain_ring_implicit_difference", decl);
     assert!(auf.contains("by sub_def"));
     assert!(auf.contains("by factor_l") || auf.contains("by factor_r"));
     assert!(!auf.contains(":="));
-    verify("stage8_ring_implicit_difference", decl, &auf);
+    verify("domain_ring_implicit_difference", decl, &auf);
 }
 
 #[test]
@@ -223,12 +223,12 @@ fn proves_factor_two() {
     );
     let auf = prove_auf(decl);
     assert!(auf.contains("by one_mul") || auf.contains("by factor_r"));
-    verify("stage8_ring_factor_two", decl, &auf);
+    verify("domain_ring_factor_two", decl, &auf);
 }
 
 #[test]
 fn fixture_file_axioms_match_embedded_axioms() {
-    let fixture = include_str!("fixtures/stage8_ring.mm0");
+    let fixture = include_str!("fixtures/domain_ring.mm0");
     for axiom_name in [
         "add_neg",
         "neg_neg",
