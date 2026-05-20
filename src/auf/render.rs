@@ -129,6 +129,17 @@ pub fn render_certificate(
     certificate: &Certificate,
     options: AufRenderOptions,
 ) -> Result<AufRenderResult, AufRenderError> {
+    render_certificate_with_block_header(mm0_env, export_env, theorem, certificate, options, None)
+}
+
+pub fn render_certificate_with_block_header(
+    mm0_env: &Mm0Env,
+    export_env: &ExportEnv,
+    theorem: &str,
+    certificate: &Certificate,
+    options: AufRenderOptions,
+    block_header: Option<&str>,
+) -> Result<AufRenderResult, AufRenderError> {
     let theorem_decl = mm0_env
         .theorem(theorem)
         .ok_or_else(|| AufRenderError::UnknownTheorem {
@@ -150,8 +161,9 @@ pub fn render_certificate(
         ..RenderState::default()
     };
     let mut out = String::new();
-    writeln!(out, "{}", theorem_decl.name).expect("write to string");
-    writeln!(out, "{}", "-".repeat(theorem_decl.name.len().max(3))).expect("write to string");
+    let block_header = block_header.unwrap_or(&theorem_decl.name);
+    writeln!(out, "{block_header}").expect("write to string");
+    writeln!(out, "{}", "-".repeat(block_header.len().max(3))).expect("write to string");
 
     for step in &certificate.steps {
         render_step(

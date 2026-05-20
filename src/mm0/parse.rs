@@ -76,6 +76,20 @@ pub fn parse_env(input: &str) -> Result<Mm0Env, Mm0ParseError> {
     Ok(env)
 }
 
+/// Parse an Aufbau local lemma header against an already parsed MM0
+/// environment.
+///
+/// `header` is the text after the `lemma` keyword, for example
+/// `local_id (x: s): $ eq x x $`. The returned declaration is theorem-like
+/// so the existing proof-search and rendering pipeline can reuse it, but it
+/// is not inserted into the environment or exported as a saturation rule.
+pub fn parse_local_lemma_header(env: &Mm0Env, header: &str) -> Result<TheoremDecl, Mm0ParseError> {
+    let text = format!("theorem {}", header.trim());
+    let mut theorem = parse_assertion_decl(&text, 1, env)?;
+    theorem.kind = AssertionKind::Theorem;
+    Ok(theorem)
+}
+
 fn parse_statement(
     statement: Statement,
     env: &mut Mm0Env,

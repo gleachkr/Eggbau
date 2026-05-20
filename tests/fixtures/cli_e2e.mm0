@@ -1,0 +1,28 @@
+-- Minimal CLI end-to-end fixture. The public theorem is first in stream
+-- order, so a generated fragment is also a standalone .auf stream:
+--
+--   cargo run -- prove tests/fixtures/cli_e2e.mm0 \
+--       --theorem target --out generated.auf
+--   abc compile tests/fixtures/cli_e2e.mm0 generated.auf generated.mmb
+--   mm0-zig generated.mmb < tests/fixtures/cli_e2e.mm0
+--
+-- Editable script workflow:
+--
+--   cargo run -- script emit tests/fixtures/cli_e2e.mm0 \
+--       --theorem target > target.egg
+--   cargo run -- script prove tests/fixtures/cli_e2e.mm0 \
+--       --theorem target --script target.egg --out generated.auf
+
+delimiter $ ( ) $;
+sort s;
+provable sort wff;
+term z: s;
+term f (x: s): s;
+term eq (x y: s): wff;
+--| @relation s eq eq_refl eq_trans eq_sym _
+axiom eq_refl (x: s): $ eq x x $;
+axiom eq_trans (x y z: s): $ eq x y $ > $ eq y z $ > $ eq x z $;
+axiom eq_sym (x y: s): $ eq x y $ > $ eq y x $;
+--| @saturation ltr
+axiom f_id (x: s): $ eq (f x) x $;
+theorem target (x: s): $ eq (f x) x $;

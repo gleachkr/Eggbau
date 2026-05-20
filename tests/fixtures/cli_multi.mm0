@@ -1,0 +1,14 @@
+sort s;
+provable sort wff;
+term z: s;
+term f (x: s): s;
+term eq (x y: s): wff;
+--| @relation s eq eq_refl eq_trans eq_sym _
+axiom eq_refl (x: s): $ eq x x $;
+axiom eq_trans (x y z: s): $ eq x y $ > $ eq y z $ > $ eq x z $;
+axiom eq_sym (x y: s): $ eq x y $ > $ eq y x $;
+--| @saturation ltr
+axiom f_id (x: s): $ eq (f x) x $;
+theorem first (x: s): $ eq (f x) x $;
+theorem second (x: s): $ eq (f x) x $;
+theorem third (x: s): $ eq (f x) x $;

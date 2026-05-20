@@ -1,11 +1,14 @@
 -- Memory-safety / pointer-reasoning fixture for poking eggbau from the CLI:
 --
 --   cargo run -- discover tests/fixtures/stage8_memory_safety.mm0
---   cargo run -- emit-egglog tests/fixtures/stage8_memory_safety.mm0
---   cargo run -- prove-egglog tests/fixtures/stage8_memory_safety.mm0 \
---       --theorem writable_at_offset_zero
---   cargo run -- emit-auf tests/fixtures/stage8_memory_safety.mm0 \
---       --theorem readable_chain_modulo_eq
+--   cargo run -- script emit tests/fixtures/stage8_memory_safety.mm0 \
+--       --theorem writable_at_offset_zero > writable_at_offset_zero.egg
+--   cargo run -- script prove tests/fixtures/stage8_memory_safety.mm0 \
+--       --theorem writable_at_offset_zero \
+--       --script writable_at_offset_zero.egg \
+--       --out writable_at_offset_zero.auf
+--   cargo run -- prove tests/fixtures/stage8_memory_safety.mm0 \
+--       --theorem readable_chain_modulo_eq --out readable_chain_modulo_eq.auf
 --
 -- This is the PCC/RISC-V-flavoured Horn theory sketched in PLAN.md:
 -- `in_frame` and `aligned` together establish `writable`, `writable`

@@ -2,7 +2,7 @@ mod env;
 mod parse;
 
 pub use env::*;
-pub use parse::{Mm0ParseError, parse_env};
+pub use parse::{Mm0ParseError, parse_env, parse_local_lemma_header};
 
 use serde::{Deserialize, Serialize};
 

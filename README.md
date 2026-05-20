@@ -1,8 +1,8 @@
 # eggbau
 
-`eggbau` is planned as a Rust library and CLI for proof search over selected
-MM0/Aufbau declarations.  It is not a verifier extension and it is not part of
-the trusted MM0 kernel.
+`eggbau` is a Rust library and CLI for proof search over selected MM0/Aufbau
+assertions. It is not a verifier extension and it is not part of the trusted
+MM0 kernel.
 
 The intended boundary is:
 
@@ -16,7 +16,7 @@ The intended boundary is:
 ```
 
 `eggbau`, egglog, and Aufbau proof-script elaboration are untrusted proof
-producers.  The generated MMB must still be checked by an MM0 verifier.
+producers. The generated MMB must still be checked by an MM0 verifier.
 
 ## Metadata policy
 
@@ -30,35 +30,108 @@ may be exported into egglog saturation:
 --| @saturation horn
 ```
 
-It also plans to reuse Aufbau's existing `@relation` and `@congr` metadata.
-It does not treat `@rewrite` as an eggbau contract.  `@rewrite` belongs to the
-Aufbau normalizer; a theorem marked only with `@rewrite` must not be exported
-to egglog by eggbau.
+It also reuses Aufbau's existing `@relation` and `@congr` metadata. It does
+not treat `@rewrite` as an eggbau contract. `@rewrite` belongs to the Aufbau
+normalizer; a theorem marked only with `@rewrite` is not exported to egglog by
+eggbau.
 
-## Stage 1 status
+## CLI
 
-This repository currently contains the Rust crate skeleton, a small CLI, a
-fixture harness, and a conservative MM0 declaration parser.  The parser extracts
-sorts, terms, assertion binders, hypotheses, conclusions, `@relation`,
-`@congr`, and `@saturation` metadata for the supported prefix fragment.  It
-fails closed for unsupported declaration forms and reports clear diagnostics for
-unsupported notation.  Export validation, proof search, egglog-proof
-translation, and `.auf` rendering are later stages.
-
-Useful commands:
+Current public commands are:
 
 ```sh
-cargo test
-cargo fmt --check
-cargo clippy --all-targets --all-features -- -D warnings
 eggbau --version
-eggbau discover tests/fixtures/empty/input.mm0
-eggbau dump-env tests/fixtures/stage1/input.mm0
-eggbau dump-env tests/fixtures/stage1/input.mm0 --theorem bv_add_zero
+eggbau discover INPUT.mm0 [--suggest-annotations]
+eggbau list INPUT.mm0
+eggbau prove INPUT.mm0 [OPTIONS]
+eggbau script emit INPUT.mm0 [OPTIONS]
+eggbau script prove INPUT.mm0 [OPTIONS]
+eggbau script check INPUT.mm0 [OPTIONS]
 ```
 
-The crate uses a vendored egglog `2.0.0` checkout with the temporary eggbau
-read-only proof API patch described in `AGENTS.md`.  The stage-0 proof API
-spike checks that `CommandOutput::ProveExists`, `ProofStore`,
-`Justification`, propositions, and proof terms are visible through that patched
-API.
+`prove` is the main command. It accepts one or more public theorem targets and
+writes generated `.auf` to stdout unless `--out` is supplied:
+
+```sh
+eggbau prove tests/fixtures/cli_e2e.mm0 \
+  --theorem target \
+  --out generated.auf
+```
+
+Useful target and output options:
+
+```text
+-t, --theorem NAME       Prove a public theorem from INPUT.mm0
+    --lemma HEADER       Prove and emit a proof-local Aufbau lemma
+    --targets FILE       Read theorem/lemma targets, one per line
+-o, --out FILE           Write generated .auf to FILE
+    --base FILE          Splice generated proofs into an existing .auf
+    --format FORMAT      Output style: explicit or implicit
+```
+
+A target file is line-oriented:
+
+```text
+-- comments and blank lines are ignored
+theorem target
+lemma local_id (x: s): $ eq (f x) x $
+```
+
+`list` prints script-friendly public theorem targets in MM0 declaration order:
+
+```sh
+eggbau list tests/fixtures/cli_multi.mm0
+```
+
+Editable egglog scripts live under the `script` namespace:
+
+```sh
+eggbau script emit tests/fixtures/cli_e2e.mm0 \
+  --theorem target > target.egg
+
+eggbau script prove tests/fixtures/cli_e2e.mm0 \
+  --theorem target \
+  --script target.egg \
+  --out generated.auf
+```
+
+`script check` runs an egglog script and validates the reconstructed proof
+without rendering `.auf`.
+
+## End-to-end verification
+
+A generated proof is checked by the ordinary Aufbau/MM0 pipeline:
+
+```sh
+eggbau prove tests/fixtures/cli_e2e.mm0 \
+  --theorem target \
+  --out generated.auf
+abc compile tests/fixtures/cli_e2e.mm0 generated.auf generated.mmb
+mm0-zig generated.mmb < tests/fixtures/cli_e2e.mm0
+```
+
+The end-to-end CLI tests look for `abc` and `mm0-zig` on `PATH`. You can also
+set explicit tool paths:
+
+```sh
+EGGBAU_ABC=/path/to/abc \
+EGGBAU_MM0_ZIG=/path/to/mm0-zig \
+CARGO_HOME="$PWD/.cargo_home" cargo test --test cli_stage10
+```
+
+If the tools are unavailable, those tests print a skip message and return.
+
+## Development commands
+
+The vendored egglog dependency uses the temporary read-only proof API patch
+described in `AGENTS.md`. After submodule initialization, ensure the patch is
+applied before building proof-related code.
+
+Useful validation commands:
+
+```sh
+CARGO_HOME="$PWD/.cargo_home" cargo fmt --all -- --check
+CARGO_HOME="$PWD/.cargo_home" cargo build --all-targets --all-features
+CARGO_HOME="$PWD/.cargo_home" cargo test --all-targets --all-features
+CARGO_HOME="$PWD/.cargo_home" cargo clippy --all-targets --all-features -- -D warnings
+```

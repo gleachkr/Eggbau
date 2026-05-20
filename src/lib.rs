@@ -11,6 +11,8 @@ pub mod egg;
 pub mod export;
 pub mod mm0;
 
+use std::collections::HashSet;
+
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -48,6 +50,22 @@ pub struct EggbauConfig {
     pub theorem: Option<String>,
     pub output_mode: OutputMode,
     pub allow_synthetic_discovery: bool,
+}
+
+/// A proof target accepted by the high-level proof pipeline.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ProofTarget {
+    PublicTheorem { name: String },
+    LocalLemma { name: String, header: String },
+}
+
+impl ProofTarget {
+    pub fn name(&self) -> &str {
+        match self {
+            Self::PublicTheorem { name } | Self::LocalLemma { name, .. } => name,
+        }
+    }
 }
 
 /// Placeholder result shape for the staged implementation.
@@ -99,6 +117,9 @@ pub enum EggbauError {
     CertTranslate(#[from] cert::TranslateError),
 
     #[error("{0}")]
+    CertValidate(#[from] cert::CertValidationError),
+
+    #[error("{0}")]
     AufRender(#[from] auf::AufRenderError),
 
     #[error("{0}")]
@@ -111,6 +132,29 @@ pub enum EggbauError {
 /// Run the current proof-search pipeline for a designated theorem.
 pub fn prove_theorem(mm0: &str, config: EggbauConfig) -> Result<ProveResult, EggbauError> {
     prove_theorem_with_auf_format(mm0, config, auf::AufRenderFormat::explicit())
+}
+
+/// Run the proof-search pipeline for public theorem targets.
+///
+/// The generated theorem blocks are emitted in MM0 declaration order, not in
+/// caller order. If an emitted theorem has earlier public proof obligations
+/// that are not included in `theorems`, the result contains a warning
+/// diagnostic rather than failing.
+pub fn prove_theorems(
+    mm0: &str,
+    theorems: &[String],
+    output_mode: OutputMode,
+) -> Result<ProveResult, EggbauError> {
+    prove_theorems_with_auf_format(mm0, theorems, output_mode, auf::AufRenderFormat::explicit())
+}
+
+/// Run proof search for public theorem and proof-local lemma targets.
+pub fn prove_targets(
+    mm0: &str,
+    targets: &[ProofTarget],
+    output_mode: OutputMode,
+) -> Result<ProveResult, EggbauError> {
+    prove_targets_with_auf_format(mm0, targets, output_mode, auf::AufRenderFormat::explicit())
 }
 
 pub(crate) fn prove_theorem_with_auf_format(
@@ -158,6 +202,342 @@ pub(crate) fn prove_theorem_with_auf_format(
         certificate_json,
         diagnostics: proof.diagnostics,
     })
+}
+
+pub(crate) fn prove_theorems_with_auf_format(
+    mm0: &str,
+    theorems: &[String],
+    output_mode: OutputMode,
+    auf_format: auf::AufRenderFormat,
+) -> Result<ProveResult, EggbauError> {
+    if theorems.is_empty() {
+        return Err(EggbauError::UnsupportedCommand(
+            "at least one proof target is required".to_owned(),
+        ));
+    }
+
+    let env = mm0::parse_env(mm0)?;
+    let ordered_theorems = order_public_theorem_targets(&env, theorems)?;
+    let export_env = export::ExportEnv::from_mm0(&env)?;
+    let mut auf_text = String::new();
+    let mut egglog_programs = Vec::new();
+    let mut certificates = Vec::new();
+    let mut diagnostics = stream_order_diagnostics(&env, &ordered_theorems);
+
+    for theorem in &ordered_theorems {
+        let proof = egg::prove_theorem(&env, &export_env, theorem)?;
+        let certificate = proof
+            .certificate
+            .clone()
+            .unwrap_or_else(cert::Certificate::empty);
+        let rendered = auf::render_certificate(
+            &env,
+            &export_env,
+            theorem,
+            &certificate,
+            auf::AufRenderOptions {
+                output_mode: output_mode.clone(),
+                format: auf_format,
+            },
+        )?;
+
+        if !auf_text.is_empty() && !auf_text.ends_with("\n\n") {
+            auf_text.push('\n');
+        }
+        auf_text.push_str(&rendered.text);
+        certificates.push(certificate_json_value(certificate, &proof));
+        egglog_programs.push(proof.egglog_program);
+        diagnostics.extend(proof.diagnostics);
+    }
+
+    Ok(ProveResult {
+        auf: auf_text,
+        egglog_program: egglog_programs.join("\n"),
+        certificate_json: serde_json::Value::Array(certificates),
+        diagnostics,
+    })
+}
+
+pub(crate) fn prove_targets_with_auf_format(
+    mm0: &str,
+    targets: &[ProofTarget],
+    output_mode: OutputMode,
+    auf_format: auf::AufRenderFormat,
+) -> Result<ProveResult, EggbauError> {
+    if targets.is_empty() {
+        return Err(EggbauError::UnsupportedCommand(
+            "at least one proof target is required".to_owned(),
+        ));
+    }
+
+    let env = mm0::parse_env(mm0)?;
+    let prepared_targets = prepare_proof_targets(&env, targets)?;
+    let mut proof_env = env.clone();
+    proof_env
+        .theorems
+        .extend(prepared_targets.iter().filter_map(|target| match target {
+            PreparedProofTarget::LocalLemma { decl, .. } => Some((**decl).clone()),
+            PreparedProofTarget::PublicTheorem { .. } => None,
+        }));
+    let public_theorems = ordered_public_targets_from_prepared(&env, &prepared_targets);
+    let export_env = export::ExportEnv::from_mm0(&env)?;
+    let mut auf_text = String::new();
+    let mut egglog_programs = Vec::new();
+    let mut certificates = Vec::new();
+    let mut diagnostics = stream_order_diagnostics(&env, &public_theorems);
+
+    for target in prepared_targets
+        .iter()
+        .filter(|target| matches!(target, PreparedProofTarget::LocalLemma { .. }))
+        .chain(public_theorems.iter().map(|name| {
+            prepared_targets
+                .iter()
+                .find(|target| target.name() == name)
+                .expect("ordered public target was prepared")
+        }))
+    {
+        let theorem_env = match target {
+            PreparedProofTarget::LocalLemma { .. } => &proof_env,
+            PreparedProofTarget::PublicTheorem { .. } => &env,
+        };
+        let proof = egg::prove_theorem(theorem_env, &export_env, target.name())?;
+        let certificate = proof
+            .certificate
+            .clone()
+            .unwrap_or_else(cert::Certificate::empty);
+        let options = auf::AufRenderOptions {
+            output_mode: output_mode.clone(),
+            format: auf_format,
+        };
+        let rendered = match target {
+            PreparedProofTarget::LocalLemma { block_header, .. } => {
+                auf::render_certificate_with_block_header(
+                    theorem_env,
+                    &export_env,
+                    target.name(),
+                    &certificate,
+                    options,
+                    Some(block_header),
+                )?
+            }
+            PreparedProofTarget::PublicTheorem { .. } => auf::render_certificate(
+                theorem_env,
+                &export_env,
+                target.name(),
+                &certificate,
+                options,
+            )?,
+        };
+
+        append_rendered_block(&mut auf_text, &rendered.text);
+        certificates.push(certificate_json_value(certificate, &proof));
+        egglog_programs.push(proof.egglog_program);
+        diagnostics.extend(proof.diagnostics);
+    }
+
+    Ok(ProveResult {
+        auf: auf_text,
+        egglog_program: egglog_programs.join("\n"),
+        certificate_json: serde_json::Value::Array(certificates),
+        diagnostics,
+    })
+}
+
+#[derive(Clone, Debug)]
+enum PreparedProofTarget {
+    PublicTheorem {
+        name: String,
+    },
+    LocalLemma {
+        name: String,
+        block_header: String,
+        decl: Box<mm0::TheoremDecl>,
+    },
+}
+
+impl PreparedProofTarget {
+    fn name(&self) -> &str {
+        match self {
+            Self::PublicTheorem { name } | Self::LocalLemma { name, .. } => name,
+        }
+    }
+}
+
+fn prepare_proof_targets(
+    env: &mm0::Mm0Env,
+    targets: &[ProofTarget],
+) -> Result<Vec<PreparedProofTarget>, EggbauError> {
+    let mut seen = HashSet::new();
+    let mut prepared = Vec::new();
+    for target in targets {
+        let name = target.name();
+        if !seen.insert(name.to_owned()) {
+            return Err(EggbauError::UnsupportedCommand(format!(
+                "duplicate proof target: {name}"
+            )));
+        }
+        match target {
+            ProofTarget::PublicTheorem { name } => {
+                validate_public_theorem_target(env, name)?;
+                prepared.push(PreparedProofTarget::PublicTheorem { name: name.clone() });
+            }
+            ProofTarget::LocalLemma { name, header } => {
+                if env.theorem(name).is_some() {
+                    return Err(EggbauError::UnsupportedCommand(format!(
+                        "local lemma target collides with public assertion: {name}"
+                    )));
+                }
+                let decl = mm0::parse_local_lemma_header(env, header)?;
+                if decl.name != *name {
+                    return Err(EggbauError::UnsupportedCommand(format!(
+                        "local lemma target name mismatch: expected {name}, found {}",
+                        decl.name
+                    )));
+                }
+                if let Some(reason) = &decl.unsupported_reason {
+                    return Err(EggbauError::UnsupportedCommand(format!(
+                        "local lemma target `{name}` uses unsupported syntax: {reason}"
+                    )));
+                }
+                if let Some(reason) = decl
+                    .hypotheses
+                    .iter()
+                    .chain(std::iter::once(&decl.conclusion))
+                    .find_map(|formula| formula.unsupported_reason.as_ref())
+                {
+                    return Err(EggbauError::UnsupportedCommand(format!(
+                        "local lemma target `{name}` uses unsupported syntax: {reason}"
+                    )));
+                }
+                prepared.push(PreparedProofTarget::LocalLemma {
+                    name: name.clone(),
+                    block_header: format!("lemma {header}"),
+                    decl: Box::new(decl),
+                });
+            }
+        }
+    }
+    Ok(prepared)
+}
+
+fn validate_public_theorem_target(env: &mm0::Mm0Env, theorem: &str) -> Result<(), EggbauError> {
+    match env.theorem(theorem) {
+        Some(decl) if decl.kind == mm0::AssertionKind::Theorem => Ok(()),
+        Some(_) => Err(EggbauError::UnsupportedCommand(format!(
+            "proof target is not a public theorem: {theorem}"
+        ))),
+        None => Err(EggbauError::UnsupportedCommand(format!(
+            "unknown proof target: {theorem}"
+        ))),
+    }
+}
+
+fn ordered_public_targets_from_prepared(
+    env: &mm0::Mm0Env,
+    targets: &[PreparedProofTarget],
+) -> Vec<String> {
+    let requested = targets
+        .iter()
+        .filter_map(|target| match target {
+            PreparedProofTarget::PublicTheorem { name } => Some(name.as_str()),
+            PreparedProofTarget::LocalLemma { .. } => None,
+        })
+        .collect::<HashSet<_>>();
+
+    env.theorems
+        .iter()
+        .filter(|decl| decl.kind == mm0::AssertionKind::Theorem)
+        .filter(|decl| requested.contains(decl.name.as_str()))
+        .map(|decl| decl.name.clone())
+        .collect()
+}
+
+fn append_rendered_block(out: &mut String, block: &str) {
+    if !out.is_empty() && !out.ends_with("\n\n") {
+        out.push('\n');
+    }
+    out.push_str(block);
+}
+
+fn certificate_json_value(
+    certificate: cert::Certificate,
+    proof: &egg::TheoremProof,
+) -> serde_json::Value {
+    let mut certificate_json =
+        serde_json::to_value(certificate).expect("certificate should serialize to JSON");
+    if let serde_json::Value::Object(object) = &mut certificate_json {
+        object.insert(
+            "stage4_proof".to_owned(),
+            serde_json::to_value(proof).expect("stage4 proof should serialize"),
+        );
+    }
+    certificate_json
+}
+
+fn order_public_theorem_targets(
+    env: &mm0::Mm0Env,
+    theorems: &[String],
+) -> Result<Vec<String>, EggbauError> {
+    let mut requested = HashSet::new();
+    for theorem in theorems {
+        if !requested.insert(theorem.as_str()) {
+            return Err(EggbauError::UnsupportedCommand(format!(
+                "duplicate proof target: {theorem}"
+            )));
+        }
+        match env.theorem(theorem) {
+            Some(decl) if decl.kind == mm0::AssertionKind::Theorem => {}
+            Some(_) => {
+                return Err(EggbauError::UnsupportedCommand(format!(
+                    "proof target is not a public theorem: {theorem}"
+                )));
+            }
+            None => {
+                return Err(EggbauError::UnsupportedCommand(format!(
+                    "unknown proof target: {theorem}"
+                )));
+            }
+        }
+    }
+
+    Ok(env
+        .theorems
+        .iter()
+        .filter(|decl| decl.kind == mm0::AssertionKind::Theorem)
+        .filter(|decl| requested.contains(decl.name.as_str()))
+        .map(|decl| decl.name.clone())
+        .collect())
+}
+
+fn stream_order_diagnostics(env: &mm0::Mm0Env, ordered_theorems: &[String]) -> Vec<Diagnostic> {
+    let requested = ordered_theorems
+        .iter()
+        .map(String::as_str)
+        .collect::<HashSet<_>>();
+    let mut missing_earlier = Vec::new();
+    for decl in &env.theorems {
+        if decl.kind != mm0::AssertionKind::Theorem {
+            continue;
+        }
+        if requested.contains(decl.name.as_str()) {
+            if !missing_earlier.is_empty() {
+                let missing = missing_earlier.join(", ");
+                return vec![Diagnostic {
+                    severity: DiagnosticSeverity::Warning,
+                    message: format!(
+                        "emitted `{}` before earlier public obligations: {missing}\n\n\
+                         The generated .auf may be useful for LSP or manual \
+                         splicing, but may not compile as a standalone stream \
+                         with `abc compile`.",
+                        decl.name
+                    ),
+                }];
+            }
+        } else {
+            missing_earlier.push(decl.name.clone());
+        }
+    }
+    Vec::new()
 }
 
 /// Produce the long-form version report required by the CLI smoke tests.

@@ -101,7 +101,7 @@ fn prove_implicit_auf(name: &str, theorem_decl: &str) -> String {
 
     eggbau::cli::run([
         "eggbau".to_owned(),
-        "emit-auf".to_owned(),
+        "prove".to_owned(),
         mm0_path.display().to_string(),
         "--theorem".to_owned(),
         "target".to_owned(),

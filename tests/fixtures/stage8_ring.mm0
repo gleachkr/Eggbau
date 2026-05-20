@@ -1,11 +1,14 @@
 -- Commutative ring fixture for poking eggbau from the CLI:
 --
 --   cargo run -- discover tests/fixtures/stage8_ring.mm0
---   cargo run -- emit-egglog tests/fixtures/stage8_ring.mm0
---   cargo run -- prove-egglog tests/fixtures/stage8_ring.mm0 \
---       --theorem difference_of_squares
---   cargo run -- emit-auf tests/fixtures/stage8_ring.mm0 \
---       --theorem neg_mul_neg
+--   cargo run -- script emit tests/fixtures/stage8_ring.mm0 \
+--       --theorem difference_of_squares > difference_of_squares.egg
+--   cargo run -- script prove tests/fixtures/stage8_ring.mm0 \
+--       --theorem difference_of_squares \
+--       --script difference_of_squares.egg \
+--       --out difference_of_squares.auf
+--   cargo run -- prove tests/fixtures/stage8_ring.mm0 \
+--       --theorem neg_mul_neg --out neg_mul_neg.auf
 --
 -- The axioms are a standard equational commutative ring: additive abelian
 -- group on (R, +, neg, 0), commutative monoid on (R, *, 1) with the

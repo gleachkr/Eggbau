@@ -1,11 +1,14 @@
 -- Bit-vector word arithmetic fixture for poking eggbau from the CLI:
 --
 --   cargo run -- discover tests/fixtures/stage8_bitvector_arith.mm0
---   cargo run -- emit-egglog tests/fixtures/stage8_bitvector_arith.mm0
---   cargo run -- prove-egglog tests/fixtures/stage8_bitvector_arith.mm0 \
---       --theorem xor_cancel_chain
---   cargo run -- emit-auf tests/fixtures/stage8_bitvector_arith.mm0 \
---       --theorem sub_self
+--   cargo run -- script emit tests/fixtures/stage8_bitvector_arith.mm0 \
+--       --theorem xor_cancel_chain > xor_cancel_chain.egg
+--   cargo run -- script prove tests/fixtures/stage8_bitvector_arith.mm0 \
+--       --theorem xor_cancel_chain \
+--       --script xor_cancel_chain.egg \
+--       --out xor_cancel_chain.auf
+--   cargo run -- prove tests/fixtures/stage8_bitvector_arith.mm0 \
+--       --theorem sub_self --out sub_self.auf
 --
 -- The theory mixes XOR algebra (commutative, associative, self-inverse) with a
 -- small two's-complement-style additive group (bv0, bv_add, bv_neg) and the
@@ -127,7 +130,7 @@ axiom bv_not_ones: $ bv_eq (bv_not bv_ones) bv0 $;
 axiom bv_shl_one_def (x: bv): $ bv_eq (bv_shl_one x) (bv_add x x) $;
 
 -- Theorems to poke. Each is provable from the axioms above; pick one with
--- --theorem when invoking emit-auf or prove-egglog.
+-- --theorem when invoking prove, script emit, or script prove.
 
 theorem sub_self (x: bv): $ bv_eq (bv_sub x x) bv0 $;
 

@@ -115,7 +115,42 @@ pub fn prove_theorem(
         .ok_or_else(|| EggbauError::UnsupportedCommand(format!("unknown theorem: {theorem}")))?;
     let prepared = prepare_theorem(export_env, theorem_decl)?;
     let program = render_proof_program(export_env, &prepared);
+    run_prepared_theorem(env, export_env, theorem_decl, prepared, program, false)
+}
 
+/// Run a user-supplied egglog proof-problem script for one theorem.
+///
+/// The script is untrusted. Eggbau checks that the extracted proof proves the
+/// selected theorem goal, translates it to certificate IR, and validates the
+/// certificate against the MM0 theorem before returning.
+pub fn check_theorem_script(
+    env: &Mm0Env,
+    export_env: &ExportEnv,
+    theorem: &str,
+    script: &str,
+) -> Result<TheoremProof, EggbauError> {
+    let theorem_decl = env
+        .theorem(theorem)
+        .ok_or_else(|| EggbauError::UnsupportedCommand(format!("unknown theorem: {theorem}")))?;
+    let prepared = prepare_theorem(export_env, theorem_decl)?;
+    run_prepared_theorem(
+        env,
+        export_env,
+        theorem_decl,
+        prepared,
+        script.to_owned(),
+        true,
+    )
+}
+
+fn run_prepared_theorem(
+    env: &Mm0Env,
+    export_env: &ExportEnv,
+    theorem_decl: &TheoremDecl,
+    prepared: PreparedTheorem,
+    program: String,
+    supplied_script: bool,
+) -> Result<TheoremProof, EggbauError> {
     let mut egraph = egglog::EGraph::new_with_proofs();
     let outputs = egraph
         .parse_and_run_program(None, &program)
@@ -134,9 +169,21 @@ pub fn prove_theorem(
     };
 
     let mut walker = ProofWalker::new(proof_store, &prepared.allowed_fiats);
-    let proof_debug = walker.walk(proof_id)?;
     let proof = proof_store.get(proof_id);
     let root_proposition = walker.proposition_string(proof.proposition());
+    if supplied_script {
+        let expected = expected_root_proposition(&prepared.goal);
+        if root_proposition != expected {
+            return Err(EggbauError::Egglog(format!(
+                concat!(
+                    "supplied egglog script proves `{}`, ",
+                    "expected theorem {} goal `{}`"
+                ),
+                root_proposition, prepared.theorem, expected
+            )));
+        }
+    }
+    let proof_debug = walker.walk(proof_id)?;
     let local_vars = prepared
         .local_constructors
         .iter()
@@ -148,7 +195,7 @@ pub fn prove_theorem(
         .collect::<Vec<_>>();
     let certificate = if prepared.goal.kind == EgglogGoalKind::Equality {
         let relation = theorem_relation(export_env, &theorem_decl.conclusion)?;
-        Some(cert::translate_equality_proof(EqualityTranslationInput {
+        cert::translate_equality_proof(EqualityTranslationInput {
             proof_store,
             root: proof_id,
             export_env,
@@ -157,11 +204,11 @@ pub fn prove_theorem(
             target_rhs_egglog: &prepared.goal.arguments[1],
             local_vars,
             hypothesis_fiats: prepared.hypothesis_fiats.clone(),
-        })?)
+        })?
     } else {
         let (target_pred, _) =
             fact_formula(export_env, &theorem_decl.conclusion).map_err(EggbauError::Egglog)?;
-        Some(translate_fact_with_equality_fallback(FactFallbackInput {
+        translate_fact_with_equality_fallback(FactFallbackInput {
             egraph: &mut egraph,
             proof_store,
             root: proof_id,
@@ -170,18 +217,27 @@ pub fn prove_theorem(
             target_args_egglog: prepared.goal.arguments.clone(),
             local_vars,
             hypothesis_fiats: prepared.hypothesis_fiats.clone(),
-        })?)
+        })?
     };
+    if supplied_script {
+        cert::validate_certificate_for_theorem(&certificate, env, export_env, &prepared.theorem)?;
+    }
 
     let mut diagnostics = Vec::new();
     diagnostics.push(Diagnostic {
         severity: DiagnosticSeverity::Info,
-        message: format!("egglog extracted a proof for theorem {theorem}"),
+        message: format!("egglog extracted a proof for theorem {}", prepared.theorem),
     });
     diagnostics.push(Diagnostic {
         severity: DiagnosticSeverity::Info,
         message: "translated egglog proof to certificate IR".to_owned(),
     });
+    if supplied_script {
+        diagnostics.push(Diagnostic {
+            severity: DiagnosticSeverity::Info,
+            message: "validated certificate IR".to_owned(),
+        });
+    }
 
     Ok(TheoremProof {
         theorem: prepared.theorem,
@@ -191,7 +247,7 @@ pub fn prove_theorem(
         proof_debug,
         proof_summary: walker.summary,
         allowed_fiats: prepared.allowed_fiats.into_values().collect(),
-        certificate,
+        certificate: Some(certificate),
         diagnostics,
     })
 }
@@ -311,6 +367,23 @@ fn prove_extra_equality(
         hypothesis_fiats: input.hypothesis_fiats.clone(),
     })
     .map_err(EggbauError::from)
+}
+
+/// Render the theorem-specific egglog proof problem without running egglog.
+///
+/// This is the same program text that `prove_theorem` sends to egglog for
+/// the selected theorem. The script is untrusted debug/user-editable input;
+/// proof reconstruction still decides whether any result is acceptable.
+pub fn render_theorem_script(
+    env: &Mm0Env,
+    export_env: &ExportEnv,
+    theorem: &str,
+) -> Result<String, EggbauError> {
+    let theorem_decl = env
+        .theorem(theorem)
+        .ok_or_else(|| EggbauError::UnsupportedCommand(format!("unknown theorem: {theorem}")))?;
+    let prepared = prepare_theorem(export_env, theorem_decl)?;
+    Ok(render_proof_program(export_env, &prepared))
 }
 
 fn prepare_theorem(
@@ -452,6 +525,13 @@ fn render_hypothesis(
     })
 }
 
+fn expected_root_proposition(goal: &EgglogGoal) -> String {
+    match goal.kind {
+        EgglogGoalKind::Equality => format!("{} = {}", goal.arguments[0], goal.arguments[1]),
+        EgglogGoalKind::Fact => format!("{} = {}", goal.query, goal.query),
+    }
+}
+
 fn render_goal(
     export_env: &ExportEnv,
     formula: &Formula,
@@ -492,7 +572,17 @@ fn render_goal(
 }
 
 fn render_proof_program(export_env: &ExportEnv, prepared: &PreparedTheorem) -> String {
-    let mut out = export::render_egglog(export_env);
+    let mut out = String::new();
+    writeln!(out, ";; generated by eggbau {}", env!("CARGO_PKG_VERSION")).expect("write to string");
+    writeln!(out, ";; theorem: {}", prepared.theorem).expect("write to string");
+    writeln!(out, ";; script kind: proof-problem").expect("write to string");
+    writeln!(
+        out,
+        ";; rule names are part of the reconstruction interface"
+    )
+    .expect("write to string");
+    writeln!(out).expect("write to string");
+    out.push_str(&export::render_egglog(export_env));
     if !out.ends_with('\n') {
         out.push('\n');
     }

@@ -200,7 +200,7 @@ fn prove_auf(input: &str) -> String {
 }
 
 #[test]
-fn cli_emit_auf_implicit_format_omits_binder_assignments() {
+fn cli_prove_implicit_format_omits_binder_assignments() {
     let dir = temp_test_dir("stage8_implicit_format");
     fs::create_dir_all(&dir).unwrap();
     let mm0_path = dir.join("input.mm0");
@@ -208,7 +208,7 @@ fn cli_emit_auf_implicit_format_omits_binder_assignments() {
 
     let auf = eggbau::cli::run([
         "eggbau".to_owned(),
-        "emit-auf".to_owned(),
+        "prove".to_owned(),
         mm0_path.display().to_string(),
         "--theorem".to_owned(),
         "target".to_owned(),

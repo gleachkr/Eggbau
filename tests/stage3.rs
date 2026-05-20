@@ -145,9 +145,9 @@ fn rewrite_only_theorems_are_not_rendered_as_saturation_rules() {
 }
 
 #[test]
-fn cli_emit_egglog_outputs_generated_program() {
+fn cli_script_emit_outputs_generated_program() {
     let output = Command::new(env!("CARGO_BIN_EXE_eggbau"))
-        .args(["emit-egglog", "tests/fixtures/stage2/input.mm0"])
+        .args(["script", "emit", "tests/fixtures/stage2/input.mm0"])
         .output()
         .unwrap();
 

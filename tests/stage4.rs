@@ -133,16 +133,27 @@ fn public_prove_theorem_api_wraps_stage_four_result() {
 }
 
 #[test]
-fn cli_prove_egglog_outputs_stage_four_json() {
+fn cli_script_check_outputs_stage_four_json() {
+    let fixture = "tests/fixtures/stage4_conversion.mm0";
+    let script =
+        eggbau::cli::run(["eggbau", "script", "emit", fixture, "--theorem", "target"]).unwrap();
+    let mut script_path = std::env::temp_dir();
+    script_path.push(format!("eggbau-stage4-script-{}.egg", std::process::id()));
+    std::fs::write(&script_path, script).unwrap();
+
     let output = Command::new(env!("CARGO_BIN_EXE_eggbau"))
         .args([
-            "prove-egglog",
-            "tests/fixtures/stage4_conversion.mm0",
+            "script",
+            "check",
+            fixture,
             "--theorem",
             "target",
+            "--script",
+            script_path.to_str().unwrap(),
         ])
         .output()
         .unwrap();
+    std::fs::remove_file(script_path).unwrap();
 
     assert!(output.status.success());
     assert!(output.stderr.is_empty());

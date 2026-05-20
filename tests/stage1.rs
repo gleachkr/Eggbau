@@ -1,5 +1,3 @@
-use std::process::Command;
-
 mod common;
 
 use eggbau::export::ExportEnv;
@@ -41,33 +39,20 @@ fn parses_declarations_and_metadata() {
 
 #[test]
 fn dump_env_snapshot_is_deterministic() {
-    let binary = env!("CARGO_BIN_EXE_eggbau");
-    let file = "tests/fixtures/stage1/input.mm0";
+    let env = parse_env(STAGE1_INPUT).unwrap();
+    let output = serde_json::to_string_pretty(&env).unwrap() + "\n";
 
-    let output = Command::new(binary)
-        .args(["dump-env", file])
-        .output()
-        .unwrap();
-
-    assert!(output.status.success());
-    assert!(output.stderr.is_empty());
-    insta::assert_snapshot!(String::from_utf8(output.stdout).unwrap());
+    insta::assert_snapshot!(output);
 }
 
 #[test]
-fn dump_env_can_print_a_designated_theorem() {
-    let binary = env!("CARGO_BIN_EXE_eggbau");
-    let file = "tests/fixtures/stage1/input.mm0";
+fn theorem_json_can_be_rendered_for_a_designated_theorem() {
+    let env = parse_env(STAGE1_INPUT).unwrap();
+    let theorem = env.theorem("bv_add_zero").unwrap();
+    let output = serde_json::to_string_pretty(theorem).unwrap();
 
-    let output = Command::new(binary)
-        .args(["dump-env", file, "--theorem", "bv_add_zero"])
-        .output()
-        .unwrap();
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("\"name\": \"bv_add_zero\""));
-    assert!(stdout.contains("\"source\": \"bv_eq (bv_add x bv0) x\""));
+    assert!(output.contains("\"name\": \"bv_add_zero\""));
+    assert!(output.contains("\"source\": \"bv_eq (bv_add x bv0) x\""));
 }
 
 #[test]
