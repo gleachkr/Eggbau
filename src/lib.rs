@@ -10,6 +10,9 @@ pub mod discover;
 pub mod egg;
 pub mod export;
 pub mod mm0;
+mod session;
+
+pub use session::{EggbauOptions, EggbauSession, GoalSpec, ProofResult};
 
 use std::collections::HashSet;
 

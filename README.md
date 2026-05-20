@@ -98,6 +98,29 @@ eggbau script prove tests/fixtures/cli_e2e.mm0 \
 `script check` runs an egglog script and validates the reconstructed proof
 without rendering `.auf`.
 
+## Library API
+
+Rust callers can keep a parsed proof-search session in memory and prove public
+or generated theorem obligations without invoking `abc`:
+
+```rust
+use eggbau::{EggbauSession, GoalSpec};
+
+let mut session = EggbauSession::from_mm0(mm0_text)?;
+let proof = session.prove_theorem("target")?;
+let cert = session.prove_to_cert("target")?;
+let auf = session.render_auf_for_theorem("target", &cert)?;
+
+let generated = GoalSpec::generated_theorem(
+    "downstream_target (x: s): $ eq (f x) x $",
+);
+let generated_proof = session.prove_goal(generated)?;
+```
+
+`ProofResult` contains the theorem name, rendered `.auf` block, optional
+editable egglog program text, certificate IR, and diagnostics. The stable API
+uses eggbau certificate types, not egglog `ProofStore` or `ProofId` internals.
+
 ## End-to-end verification
 
 A generated proof is checked by the ordinary Aufbau/MM0 pipeline:
