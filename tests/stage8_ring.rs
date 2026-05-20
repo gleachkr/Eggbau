@@ -93,6 +93,24 @@ fn prove_auf(theorem_decl: &str) -> String {
     .auf
 }
 
+fn prove_implicit_auf(name: &str, theorem_decl: &str) -> String {
+    let dir = temp_test_dir(&format!("{name}_emit"));
+    fs::create_dir_all(&dir).unwrap();
+    let mm0_path = dir.join("input.mm0");
+    fs::write(&mm0_path, format!("{AXIOMS}{theorem_decl}")).unwrap();
+
+    eggbau::cli::run([
+        "eggbau".to_owned(),
+        "emit-auf".to_owned(),
+        mm0_path.display().to_string(),
+        "--theorem".to_owned(),
+        "target".to_owned(),
+        "--format".to_owned(),
+        "implicit".to_owned(),
+    ])
+    .unwrap()
+}
+
 fn verify(name: &str, theorem_decl: &str, auf: &str) {
     let mm0 = format!("{AXIOMS}{theorem_decl}");
     verify_with_external_tools(name, &mm0, auf);
@@ -180,6 +198,20 @@ fn proves_difference_of_squares() {
     assert!(auf.contains("by sub_def"));
     assert!(auf.contains("by factor_l") || auf.contains("by factor_r"));
     verify("stage8_ring_difference_of_squares", decl, &auf);
+}
+
+#[test]
+fn verifies_implicit_difference_of_squares() {
+    let decl = concat!(
+        "\ntheorem target (a b: R):\n",
+        "  $ eq (mul (add a b) (sub a b))\n",
+        "       (sub (mul a a) (mul b b)) $;\n",
+    );
+    let auf = prove_implicit_auf("stage8_ring_implicit_difference", decl);
+    assert!(auf.contains("by sub_def"));
+    assert!(auf.contains("by factor_l") || auf.contains("by factor_r"));
+    assert!(!auf.contains(":="));
+    verify("stage8_ring_implicit_difference", decl, &auf);
 }
 
 #[test]

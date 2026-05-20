@@ -104,6 +104,24 @@ fn prove_auf(theorem_decl: &str) -> String {
     .auf
 }
 
+fn prove_implicit_auf(name: &str, theorem_decl: &str) -> String {
+    let dir = temp_test_dir(&format!("{name}_emit"));
+    fs::create_dir_all(&dir).unwrap();
+    let mm0_path = dir.join("input.mm0");
+    fs::write(&mm0_path, format!("{AXIOMS}{theorem_decl}")).unwrap();
+
+    eggbau::cli::run([
+        "eggbau".to_owned(),
+        "emit-auf".to_owned(),
+        mm0_path.display().to_string(),
+        "--theorem".to_owned(),
+        "target".to_owned(),
+        "--format".to_owned(),
+        "implicit".to_owned(),
+    ])
+    .unwrap()
+}
+
 fn verify(name: &str, theorem_decl: &str, auf: &str) {
     let mm0 = format!("{AXIOMS}{theorem_decl}");
     verify_with_external_tools(name, &mm0, auf);
@@ -202,6 +220,32 @@ fn proves_shannon_expansion() {
     assert!(auf.contains("by or_factor"));
     assert!(auf.contains("by or_compl"));
     verify("stage8_bool_shannon", decl, &auf);
+}
+
+#[test]
+fn verifies_implicit_chained_de_morgan() {
+    let decl = concat!(
+        "\ntheorem target (x y z: bool):\n",
+        "  $ eq (not (or x (and y z))) (and (not x) (or (not y) (not z))) $;\n",
+    );
+    let auf = prove_implicit_auf("stage8_bool_implicit_demorgan", decl);
+    assert!(auf.contains("by demorgan_or"));
+    assert!(auf.contains("by demorgan_and"));
+    assert!(!auf.contains(":="));
+    verify("stage8_bool_implicit_demorgan", decl, &auf);
+}
+
+#[test]
+fn verifies_implicit_shannon_expansion() {
+    let decl = concat!(
+        "\ntheorem target (x y: bool):\n",
+        "  $ eq x (or (and y x) (and (not y) x)) $;\n",
+    );
+    let auf = prove_implicit_auf("stage8_bool_implicit_shannon", decl);
+    assert!(auf.contains("by or_factor"));
+    assert!(auf.contains("by or_compl"));
+    assert!(!auf.contains(":="));
+    verify("stage8_bool_implicit_shannon", decl, &auf);
 }
 
 #[test]
