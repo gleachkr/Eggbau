@@ -16,7 +16,6 @@ pub struct ExportEnv {
     pub saturation_conversions: Vec<SaturationConversionLaw>,
     pub saturation_horn_rules: Vec<SaturationHornLaw>,
     pub congruences: BTreeMap<String, CongruenceLaw>,
-    pub proof_goals: ProofGoalConstructors,
     pub assertions: Vec<ExportAssertion>,
 }
 
@@ -54,7 +53,6 @@ impl ExportEnv {
                 transitivity: relation.transitivity.clone(),
                 symmetry: relation.symmetry.clone(),
                 transport: relation.transport.clone(),
-                equality_goal_constructor: proven_eq_name(&relation.sort),
             };
             relation_by_term.insert(relation.relation.clone(), relation.sort.clone());
             relations.insert(relation.sort.clone(), bundle);
@@ -134,23 +132,6 @@ impl ExportEnv {
             }
         }
 
-        let proof_goals = ProofGoalConstructors {
-            equality: relations
-                .iter()
-                .map(|(sort, bundle)| (sort.clone(), bundle.equality_goal_constructor.clone()))
-                .collect(),
-            facts: terms
-                .iter()
-                .filter(|term| term.kind == ExportTermKind::FactRelation)
-                .map(|term| {
-                    (
-                        term.source_name.clone(),
-                        proven_fact_name(&term.source_name),
-                    )
-                })
-                .collect(),
-        };
-
         let export = Self {
             sorts,
             terms,
@@ -158,7 +139,6 @@ impl ExportEnv {
             saturation_conversions,
             saturation_horn_rules,
             congruences,
-            proof_goals,
             assertions,
         };
         validate_generated_name_collisions(&export)?;
@@ -203,7 +183,6 @@ pub struct RelationBundle {
     pub transitivity: String,
     pub symmetry: String,
     pub transport: Option<String>,
-    pub equality_goal_constructor: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -272,12 +251,6 @@ pub struct CongruenceLaw {
     pub term: String,
     pub relation: String,
     pub relation_sort: String,
-}
-
-#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
-pub struct ProofGoalConstructors {
-    pub equality: BTreeMap<String, String>,
-    pub facts: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -544,7 +517,10 @@ impl<'a> TermIndex<'a> {
     }
 
     fn egglog_term_name(&self, term: &TermDecl) -> String {
-        if self.sort_is_provable(&term.result_sort) {
+        let inputs = term_input_sorts(term);
+        if self.sort_is_provable(&term.result_sort)
+            && !inputs.iter().any(|sort| self.sort_is_provable(sort))
+        {
             egglog_relation_name(&term.name)
         } else {
             pascal_ident(&term.name)
@@ -640,6 +616,13 @@ fn build_horn_law(
     rule_names: &mut BTreeSet<String>,
 ) -> Result<SaturationHornLaw, ExportValidationError> {
     ensure_rule_name_fresh(&theorem.name, ExportUse::Saturation, rule_names)?;
+    if theorem.hypotheses.is_empty() {
+        return Err(ExportValidationError {
+            theorem: theorem.name.clone(),
+            use_kind: ExportUse::Saturation,
+            reason: "horn rules require at least one premise".to_owned(),
+        });
+    }
     let hypotheses = theorem
         .hypotheses
         .iter()
@@ -788,14 +771,6 @@ fn validate_generated_name_collisions(env: &ExportEnv) -> Result<(), ExportValid
             )?;
         }
     }
-    for goal in env
-        .proof_goals
-        .equality
-        .values()
-        .chain(env.proof_goals.facts.values())
-    {
-        insert_generated_name(&mut names, goal, &format!("goal {goal}"))?;
-    }
     Ok(())
 }
 
@@ -823,7 +798,6 @@ pub fn render_egglog(env: &ExportEnv) -> String {
     for sort in &env.sorts {
         writeln!(out, "(sort {})", sort.egglog_name).expect("write to string");
     }
-    writeln!(out, "(sort Goal)").expect("write to string");
     writeln!(out).expect("write to string");
 
     for term in &env.terms {
@@ -857,36 +831,9 @@ pub fn render_egglog(env: &ExportEnv) -> String {
             ExportTermKind::RelationSymbol => {}
         }
     }
-    for constructor in env.proof_goals.equality.values() {
-        let sort = env
-            .proof_goals
-            .equality
-            .iter()
-            .find_map(|(sort, name)| (name == constructor).then_some(sort))
-            .expect("constructor came from equality map");
-        writeln!(
-            out,
-            "(constructor {} ({} {}) Goal)",
-            constructor,
-            egglog_sort_name(sort),
-            egglog_sort_name(sort)
-        )
-        .expect("write to string");
-    }
-    for (fact, constructor) in &env.proof_goals.facts {
-        let term = env.term(fact).expect("fact goal has source term");
-        let inputs = term
-            .input_sorts
-            .iter()
-            .map(|sort| egglog_sort_name(sort))
-            .collect::<Vec<_>>()
-            .join(" ");
-        writeln!(out, "(constructor {} ({}) Goal)", constructor, inputs).expect("write to string");
-    }
     writeln!(out).expect("write to string");
 
     writeln!(out, "(ruleset saturation)").expect("write to string");
-    writeln!(out, "(ruleset goals)").expect("write to string");
     writeln!(out).expect("write to string");
 
     for law in &env.saturation_conversions {
@@ -915,37 +862,6 @@ pub fn render_egglog(env: &ExportEnv) -> String {
         )
         .expect("write to string");
     }
-    if !env.saturation_conversions.is_empty() || !env.saturation_horn_rules.is_empty() {
-        writeln!(out).expect("write to string");
-    }
-
-    for (sort, constructor) in &env.proof_goals.equality {
-        writeln!(
-            out,
-            "(rule ((= a b)) (({} a b)) :ruleset goals :name \
-             \"prove_eq_{}\")",
-            constructor,
-            snake_ident(sort)
-        )
-        .expect("write to string");
-    }
-    for (fact, constructor) in &env.proof_goals.facts {
-        let term = env.term(fact).expect("fact goal has source term");
-        let vars = (0..term.input_sorts.len())
-            .map(|idx| format!("a{idx}"))
-            .collect::<Vec<_>>();
-        let fact_call = render_call(&egglog_relation_name(fact), &vars);
-        let goal_call = render_call(constructor, &vars);
-        writeln!(
-            out,
-            "(rule ({}) ({}) :ruleset goals :name \"prove_{}\")",
-            fact_call,
-            goal_call,
-            snake_ident(fact)
-        )
-        .expect("write to string");
-    }
-
     out
 }
 
@@ -953,7 +869,6 @@ pub fn render_egglog_with_schedule(env: &ExportEnv) -> String {
     let mut out = render_egglog(env);
     writeln!(out).expect("write to string");
     writeln!(out, "(run-schedule (saturate (run saturation)))").expect("write to string");
-    writeln!(out, "(run-schedule (run goals))").expect("write to string");
     out
 }
 
@@ -1045,8 +960,13 @@ fn export_term_kind(
     relation_by_term: &HashMap<String, String>,
 ) -> ExportTermKind {
     if relation_by_term.contains_key(&term.name) {
-        ExportTermKind::RelationSymbol
-    } else if env.sort_is_provable(&term.result_sort) {
+        return ExportTermKind::RelationSymbol;
+    }
+
+    let inputs = term_input_sorts(term);
+    if env.sort_is_provable(&term.result_sort)
+        && !inputs.iter().any(|sort| env.sort_is_provable(sort))
+    {
         ExportTermKind::FactRelation
     } else {
         ExportTermKind::Constructor
@@ -1078,14 +998,6 @@ fn egglog_term_name(term: &TermDecl, kind: ExportTermKind) -> String {
 
 fn egglog_relation_name(name: &str) -> String {
     snake_ident(name)
-}
-
-fn proven_eq_name(sort: &str) -> String {
-    format!("ProvenEq{}", pascal_ident(sort))
-}
-
-fn proven_fact_name(fact: &str) -> String {
-    format!("Proven{}", pascal_ident(fact))
 }
 
 fn pascal_ident(name: &str) -> String {
@@ -1151,6 +1063,7 @@ axiom f_id (x: s): $ eq (f x) x $;
 
         assert!(egglog.contains("(constructor F (S) S)"));
         assert!(egglog.contains(":name \"f_id\""));
-        assert!(egglog.contains("(constructor ProvenEqS (S S) Goal)"));
+        assert!(!egglog.contains("Goal"));
+        assert!(!egglog.contains("ruleset goals"));
     }
 }

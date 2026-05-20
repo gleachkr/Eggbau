@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::{EggbauError, discover, export, mm0, version_report};
+use crate::{EggbauConfig, EggbauError, OutputMode, discover, export, mm0, version_report};
 
 /// Run the eggbau command line using the provided argument iterator.
 pub fn run<I, S>(args: I) -> Result<String, EggbauError>
@@ -18,6 +18,7 @@ where
         Some("dump-env") => run_dump_env(args),
         Some("emit-egglog") => run_emit_egglog(args),
         Some("prove-egglog") => run_prove_egglog(args),
+        Some("emit-auf") => run_emit_auf(args),
         Some(other) => Err(EggbauError::UnsupportedCommand(other.to_owned())),
     }
 }
@@ -106,6 +107,27 @@ fn run_prove_egglog(mut args: impl Iterator<Item = String>) -> Result<String, Eg
     Ok(serde_json::to_string_pretty(&proof).expect("proof JSON should render") + "\n")
 }
 
+fn run_emit_auf(mut args: impl Iterator<Item = String>) -> Result<String, EggbauError> {
+    let file = args.next().ok_or_else(|| {
+        EggbauError::UnsupportedCommand("emit-auf requires an MM0 input path".to_owned())
+    })?;
+    let theorem = parse_required_theorem(&mut args)?;
+    if let Some(extra) = args.next() {
+        return Err(EggbauError::UnsupportedCommand(extra));
+    }
+
+    let input = read_mm0(&file)?;
+    let result = crate::prove_theorem(
+        &input,
+        EggbauConfig {
+            theorem: Some(theorem),
+            output_mode: OutputMode::Fragment,
+            allow_synthetic_discovery: false,
+        },
+    )?;
+    Ok(result.auf)
+}
+
 fn parse_required_theorem(args: &mut impl Iterator<Item = String>) -> Result<String, EggbauError> {
     match args.next().as_deref() {
         Some("--theorem") => args.next().ok_or_else(|| {
@@ -135,8 +157,9 @@ pub fn help_text() -> String {
         "  eggbau dump-env FILE.mm0 [--theorem THEOREM]",
         "  eggbau emit-egglog FILE.mm0 [--scheduled]",
         "  eggbau prove-egglog FILE.mm0 --theorem THEOREM",
+        "  eggbau emit-auf FILE.mm0 --theorem THEOREM",
         "",
-        "Stage 4 runs proof-mode egglog and extracts proof objects.",
+        "Stage 8 can emit an Aufbau proof fragment for one theorem.",
     ]
     .join("\n")
         + "\n"

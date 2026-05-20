@@ -67,6 +67,90 @@ fn discover_rendering_is_deterministic_and_suggests_annotations() {
 }
 
 #[test]
+fn hilbert_style_modus_ponens_is_not_a_v1_horn_candidate() {
+    let env = parse_env(
+        r#"
+delimiter $ ( ) $;
+provable sort wff;
+term imp (a b: wff): wff; infixr imp: $->$ prec 25;
+axiom mp (a b: wff): $ a $ > $ a -> b $ > $ b $;
+"#,
+    )
+    .unwrap();
+    let report = DiscoveryReport::from_env(&env);
+
+    assert!(report.possible_horn_rules.is_empty());
+}
+
+#[test]
+fn zero_premise_fact_producing_rule_is_not_a_horn_candidate() {
+    let env = parse_env(
+        r#"
+provable sort wff;
+term p: wff;
+axiom p_axiom: $ p $;
+"#,
+    )
+    .unwrap();
+    let report = DiscoveryReport::from_env(&env);
+
+    assert!(report.possible_horn_rules.is_empty());
+}
+
+#[test]
+fn judgment_modus_ponens_accepts_unparenthesized_prefix_argument() {
+    let env = parse_env(
+        r#"
+delimiter $ ( ) $;
+provable sort jdg;
+sort wff;
+term imp (a b: wff): wff; infixr imp: $->$ prec 25;
+term provable (a: wff): jdg; prefix provable: $⊢$ prec 25;
+--| @saturation horn
+axiom mp (a b: wff): $ ⊢ a $ > $ ⊢ a -> b $ > $ ⊢ b $;
+"#,
+    )
+    .unwrap();
+
+    assert!(validate_metadata(&env).is_empty());
+}
+
+#[test]
+fn annotated_hilbert_style_modus_ponens_is_rejected_as_unsupported() {
+    let env = parse_env(
+        r#"
+delimiter $ ( ) $;
+provable sort wff;
+term imp (a b: wff): wff; infixr imp: $->$ prec 25;
+--| @saturation horn
+axiom mp (a b: wff): $ a $ > $ a -> b $ > $ b $;
+"#,
+    )
+    .unwrap();
+    let errors = validate_metadata(&env);
+
+    assert_eq!(errors[0].theorem, "mp");
+    assert!(errors[0].message.contains("atomic fact relation"));
+}
+
+#[test]
+fn annotated_zero_premise_horn_rule_is_rejected() {
+    let env = parse_env(
+        r#"
+provable sort wff;
+term p: wff;
+--| @saturation horn
+axiom p_axiom: $ p $;
+"#,
+    )
+    .unwrap();
+    let errors = validate_metadata(&env);
+
+    assert_eq!(errors[0].theorem, "p_axiom");
+    assert!(errors[0].message.contains("at least one premise"));
+}
+
+#[test]
 fn cli_discover_supports_suggest_annotations() {
     let output = Command::new(env!("CARGO_BIN_EXE_eggbau"))
         .args([
@@ -109,7 +193,7 @@ fn discover_stress_runs_on_extracted_mm0_fixture_inventory() {
 
     assert_eq!(paths.len(), 47);
     assert_eq!(totals.conversions, 117);
-    assert_eq!(totals.horn_rules, 357);
+    assert_eq!(totals.horn_rules, 17);
     assert_eq!(totals.congruences, 0);
     assert_eq!(totals.metadata_errors, 47);
 }

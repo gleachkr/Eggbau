@@ -1,0 +1,136 @@
+-- List monoid + cross-sort length fixture for poking eggbau from the CLI:
+--
+--   cargo run -- discover tests/fixtures/stage8_list_monoid.mm0
+--   cargo run -- emit-egglog tests/fixtures/stage8_list_monoid.mm0
+--   cargo run -- prove-egglog tests/fixtures/stage8_list_monoid.mm0 \
+--       --theorem length_rev_app
+--   cargo run -- emit-auf tests/fixtures/stage8_list_monoid.mm0 \
+--       --theorem rev_rev_under_app
+--
+-- This is a free-monoid view of lists: `app` is associative with `nil` as
+-- two-sided unit, `rev` is an involution that reverses concatenation, and
+-- `length` is a monoid homomorphism into (`nat`, `nat_add`, `zero_nat`).
+-- The cross-sort congruence `length_congr` lets eggbau bridge list_eq
+-- facts to nat_eq conclusions about lengths. Saturation rules are all
+-- terminating: each rewrite either shrinks the term or moves a single
+-- `length` past a fixed-shape `app`/`rev` rather than reproducing one.
+
+delimiter $ ( ) $;
+sort elem;
+sort list;
+sort nat;
+provable sort wff;
+
+term list_eq (xs ys: list): wff;
+term nat_eq (n m: nat): wff;
+
+term nil: list;
+term cons (h: elem) (t: list): list;
+term app (xs ys: list): list;
+term rev (xs: list): list;
+term length (xs: list): nat;
+
+term zero_nat: nat;
+term succ (n: nat): nat;
+term nat_add (n m: nat): nat;
+
+--| @relation list list_eq list_refl list_trans list_sym _
+axiom list_refl (xs: list): $ list_eq xs xs $;
+axiom list_trans (xs ys zs: list):
+  $ list_eq xs ys $ > $ list_eq ys zs $ > $ list_eq xs zs $;
+axiom list_sym (xs ys: list): $ list_eq xs ys $ > $ list_eq ys xs $;
+
+--| @relation nat nat_eq nat_refl nat_trans nat_sym _
+axiom nat_refl (n: nat): $ nat_eq n n $;
+axiom nat_trans (n m p: nat):
+  $ nat_eq n m $ > $ nat_eq m p $ > $ nat_eq n p $;
+axiom nat_sym (n m: nat): $ nat_eq n m $ > $ nat_eq m n $;
+
+--| @congr
+axiom app_congr (a b c d: list):
+  $ list_eq a b $ > $ list_eq c d $ > $ list_eq (app a c) (app b d) $;
+--| @congr
+axiom rev_congr (a b: list):
+  $ list_eq a b $ > $ list_eq (rev a) (rev b) $;
+--| @congr
+axiom length_congr (a b: list):
+  $ list_eq a b $ > $ nat_eq (length a) (length b) $;
+--| @congr
+axiom succ_congr (n m: nat): $ nat_eq n m $ > $ nat_eq (succ n) (succ m) $;
+--| @congr
+axiom nat_add_congr (a b c d: nat):
+  $ nat_eq a b $ > $ nat_eq c d $ > $ nat_eq (nat_add a c) (nat_add b d) $;
+
+-- Monoid axioms for (list, app, nil).
+--| @saturation ltr
+axiom app_nil_l (xs: list): $ list_eq (app nil xs) xs $;
+--| @saturation ltr
+axiom app_nil_r (xs: list): $ list_eq (app xs nil) xs $;
+--| @saturation ltr
+axiom app_assoc (xs ys zs: list):
+  $ list_eq (app (app xs ys) zs) (app xs (app ys zs)) $;
+
+-- rev is an involutive antihomomorphism.
+--| @saturation ltr
+axiom rev_nil: $ list_eq (rev nil) nil $;
+--| @saturation ltr
+axiom rev_rev (xs: list): $ list_eq (rev (rev xs)) xs $;
+--| @saturation ltr
+axiom rev_app (xs ys: list):
+  $ list_eq (rev (app xs ys)) (app (rev ys) (rev xs)) $;
+
+-- Length is a monoid homomorphism into (nat, nat_add, zero_nat).
+--| @saturation ltr
+axiom length_nil: $ nat_eq (length nil) zero_nat $;
+--| @saturation ltr
+axiom length_cons (h: elem) (xs: list):
+  $ nat_eq (length (cons h xs)) (succ (length xs)) $;
+--| @saturation ltr
+axiom length_app (xs ys: list):
+  $ nat_eq (length (app xs ys)) (nat_add (length xs) (length ys)) $;
+--| @saturation ltr
+axiom length_rev (xs: list): $ nat_eq (length (rev xs)) (length xs) $;
+
+-- Nat-add monoid laws (needed to combine length-of-app results).
+--| @saturation ltr
+axiom nat_add_zero_l (n: nat): $ nat_eq (nat_add zero_nat n) n $;
+--| @saturation ltr
+axiom nat_add_zero_r (n: nat): $ nat_eq (nat_add n zero_nat) n $;
+--| @saturation ltr
+axiom nat_add_comm (n m: nat): $ nat_eq (nat_add n m) (nat_add m n) $;
+--| @saturation ltr
+axiom nat_add_assoc (n m p: nat):
+  $ nat_eq (nat_add (nat_add n m) p) (nat_add n (nat_add m p)) $;
+--| @saturation ltr
+axiom succ_nat_add_l (n m: nat):
+  $ nat_eq (nat_add (succ n) m) (succ (nat_add n m)) $;
+
+-- Theorems to poke.
+
+theorem app_nil_right_collapse (xs: list): $ list_eq (app xs nil) xs $;
+
+theorem rev_app_nil (xs: list): $ list_eq (rev (app xs nil)) (rev xs) $;
+
+theorem rev_rev_under_app (xs ys: list):
+  $ list_eq (app (rev (rev xs)) ys) (app xs ys) $;
+
+theorem rev_app_swap (xs ys: list):
+  $ list_eq (rev (app xs ys)) (app (rev ys) (rev xs)) $;
+
+theorem length_app_nil_right_is_length (xs: list):
+  $ nat_eq (length (app xs nil)) (length xs) $;
+
+theorem length_rev_app (xs ys: list):
+  $ nat_eq (length (rev (app xs ys)))
+           (nat_add (length xs) (length ys)) $;
+
+theorem length_two_cons (h k: elem):
+  $ nat_eq (length (cons h (cons k nil))) (succ (succ zero_nat)) $;
+
+theorem length_cons_app (h: elem) (xs ys: list):
+  $ nat_eq (length (app (cons h xs) ys))
+           (succ (nat_add (length xs) (length ys))) $;
+
+theorem rev_three_app_assoc (xs ys zs: list):
+  $ list_eq (rev (app (app xs ys) zs))
+           (app (rev zs) (app (rev ys) (rev xs))) $;

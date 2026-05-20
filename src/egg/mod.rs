@@ -37,10 +37,23 @@ pub struct TheoremProof {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct EgglogGoal {
-    pub constructor: String,
     pub arguments: Vec<String>,
+    /// Fact expression passed straight to `(prove ...)`. For equality goals
+    /// this is `(= lhs rhs)`; for atomic-fact goals it's `(P args...)`. We
+    /// used to wrap goals in a `ProvenEqS`/`ProvenP` constructor populated
+    /// by a `(rule ((= a b)) ((ProvenEqS a b)))` lifting rule, but that
+    /// created an entry for every pair of equal e-classes after saturation
+    /// and made `(prove ...)` extraction blow up. Direct goals are how
+    /// egglog's own examples do goal-directed search.
     pub query: String,
     pub kind: EgglogGoalKind,
+    /// Fact expression used as the `:until` condition on the saturation
+    /// schedule. Stops saturation the moment the goal e-classes unify,
+    /// keeping the e-graph small enough that egglog's `(prove ...)`
+    /// extraction stays fast — on a fully-saturated graph with idempotent
+    /// rewrites the proof search can take many minutes even though
+    /// saturation itself terminates in under a second.
+    pub until_fact: String,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -269,22 +282,8 @@ fn prove_extra_equality(
     input: &mut FactFallbackInput<'_>,
     request: &ExtraEqualityRequest,
 ) -> Result<Certificate, EggbauError> {
-    let constructor = input
-        .export_env
-        .proof_goals
-        .equality
-        .get(&request.sort)
-        .ok_or_else(|| {
-            EggbauError::Egglog(format!(
-                "no equality goal constructor for sort {}",
-                request.sort
-            ))
-        })?;
-    let query = render_call(
-        constructor,
-        &[request.lhs_egglog.clone(), request.rhs_egglog.clone()],
-    );
-    let program = format!("(run-schedule (run goals))\n(prove {query})\n");
+    let query = format!("(= {} {})", request.lhs_egglog, request.rhs_egglog);
+    let program = format!("(prove {query})\n");
     let outputs = input
         .egraph
         .parse_and_run_program(None, &program)
@@ -458,43 +457,37 @@ fn render_goal(
     formula: &Formula,
     variables: &BTreeMap<String, String>,
 ) -> Result<EgglogGoal, String> {
-    if let Some((sort, lhs, rhs)) = relation_formula(export_env, formula) {
-        let constructor = export_env
-            .proof_goals
-            .equality
-            .get(sort)
-            .ok_or_else(|| format!("no equality goal constructor for sort {sort}"))?
-            .clone();
+    if let Some((_sort, lhs, rhs)) = relation_formula(export_env, formula) {
         let arguments = vec![
             render_expr(export_env, lhs, variables)?,
             render_expr(export_env, rhs, variables)?,
         ];
-        let query = render_call(&constructor, &arguments);
+        let query = format!("(= {} {})", arguments[0], arguments[1]);
+        let until_fact = query.clone();
         return Ok(EgglogGoal {
-            constructor,
             arguments,
             query,
             kind: EgglogGoalKind::Equality,
+            until_fact,
         });
     }
 
     let (head, args) = fact_formula(export_env, formula)?;
-    let constructor = export_env
-        .proof_goals
-        .facts
-        .get(head)
-        .ok_or_else(|| format!("no fact goal constructor for predicate {head}"))?
-        .clone();
     let arguments = args
         .iter()
         .map(|arg| render_expr(export_env, arg, variables))
         .collect::<Result<Vec<_>, _>>()?;
-    let query = render_call(&constructor, &arguments);
+    let fact_relation = &export_env
+        .term(head)
+        .expect("fact_formula checked exported term")
+        .egglog_name;
+    let query = render_call(fact_relation, &arguments);
+    let until_fact = query.clone();
     Ok(EgglogGoal {
-        constructor,
         arguments,
         query,
         kind: EgglogGoalKind::Fact,
+        until_fact,
     })
 }
 
@@ -519,11 +512,28 @@ fn render_proof_program(export_env: &ExportEnv, prepared: &PreparedTheorem) -> S
     for seed in &prepared.seeds {
         writeln!(out, "{seed}").expect("write to string");
     }
-    writeln!(out, "(run-schedule (saturate (run saturation)))").expect("write to string");
-    writeln!(out, "(run-schedule (run goals))").expect("write to string");
+    writeln!(
+        out,
+        "(run-schedule (repeat {SATURATION_ITERATION_CAP} \
+         (run saturation :until {})))",
+        prepared.goal.until_fact,
+    )
+    .expect("write to string");
     writeln!(out, "(prove {})", prepared.goal.query).expect("write to string");
     out
 }
+
+/// Upper bound on saturation iterations per proof attempt.
+///
+/// The `:until <goal-fact>` clause on the inner `run` is the load-bearing
+/// piece: it stops saturation the moment the goal e-classes unify, before
+/// the e-graph accumulates the redundant union paths that make egglog's
+/// `(prove ...)` extraction blow up. (`(saturate ...)` by itself terminates
+/// fine — proof *search*, not saturation, is what scales poorly on a
+/// fully-saturated graph with idempotent rewrites.) This `repeat` cap is a
+/// belt-and-suspenders safety net for pathological user axioms; well-formed
+/// rule sets exit via `:until` long before reaching it.
+const SATURATION_ITERATION_CAP: usize = 1024;
 
 fn theorem_relation<'a>(
     export_env: &'a ExportEnv,

@@ -41,8 +41,6 @@ fn export_env_contains_stage_three_structures() {
 
     assert_eq!(export.sorts[0].egglog_name, "S");
     assert_eq!(export.relations["s"].relation, "eq");
-    assert_eq!(export.proof_goals.equality["s"], "ProvenEqS");
-    assert_eq!(export.proof_goals.facts["p"], "ProvenP");
 
     let p = export.term("p").unwrap();
     assert_eq!(p.kind, ExportTermKind::FactRelation);
@@ -65,20 +63,14 @@ fn generated_egglog_for_conversion_is_deterministic() {
         "\n",
         "(sort S)\n",
         "(sort Wff)\n",
-        "(sort Goal)\n",
         "\n",
         "(constructor Z () S)\n",
         "(constructor F (S) S)\n",
-        "(constructor ProvenEqS (S S) Goal)\n",
         "\n",
         "(ruleset saturation)\n",
-        "(ruleset goals)\n",
         "\n",
         "(rule ((= eggbau_lhs (F v_x))) ((union eggbau_lhs v_x)) \
          :ruleset saturation :name \"f_id\")\n",
-        "\n",
-        "(rule ((= a b)) ((ProvenEqS a b)) :ruleset goals \
-         :name \"prove_eq_s\")\n",
     );
 
     assert_eq!(egglog, expected);
@@ -125,8 +117,7 @@ fn generated_program_derives_simple_conversion_goal() {
     let program = render_egglog_with_schedule(&export)
         + "\n(F (Z))\n"
         + "(run-schedule (saturate (run saturation)))\n"
-        + "(run-schedule (run goals))\n"
-        + "(prove (ProvenEqS (F (Z)) (Z)))\n";
+        + "(prove (= (F (Z)) (Z)))\n";
 
     run_egglog(&program);
 }
@@ -138,8 +129,7 @@ fn generated_program_derives_simple_horn_goal() {
     let program = render_egglog(&export)
         + "\n(q (Z))\n"
         + "(run-schedule (saturate (run saturation)))\n"
-        + "(run-schedule (run goals))\n"
-        + "(prove (ProvenP (Z)))\n";
+        + "(prove (p (Z)))\n";
 
     run_egglog(&program);
 }

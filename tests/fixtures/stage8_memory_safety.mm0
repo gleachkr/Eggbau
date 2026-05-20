@@ -1,0 +1,111 @@
+-- Memory-safety / pointer-reasoning fixture for poking eggbau from the CLI:
+--
+--   cargo run -- discover tests/fixtures/stage8_memory_safety.mm0
+--   cargo run -- emit-egglog tests/fixtures/stage8_memory_safety.mm0
+--   cargo run -- prove-egglog tests/fixtures/stage8_memory_safety.mm0 \
+--       --theorem writable_at_offset_zero
+--   cargo run -- emit-auf tests/fixtures/stage8_memory_safety.mm0 \
+--       --theorem readable_chain_modulo_eq
+--
+-- This is the PCC/RISC-V-flavoured Horn theory sketched in PLAN.md:
+-- `in_frame` and `aligned` together establish `writable`, `writable`
+-- implies `readable`, and the whole stack should also work modulo
+-- addr_eq / size_eq using @congr against the wff biconditional `bi` plus
+-- its mp-style transport theorem. The single equational law `offset_zero`
+-- lets eggbau cancel `offset a zero_size` back to `a` before applying the
+-- Horn rules.
+
+delimiter $ ( ) $;
+sort addr;
+sort size;
+provable sort wff;
+term addr_eq (a b: addr): wff;
+term size_eq (n m: size): wff;
+term bi (x y: wff): wff;
+
+-- Address arithmetic
+term zero_size: size;
+term offset (a: addr) (n: size): addr;
+
+-- Fact predicates
+term in_frame (a: addr) (n: size): wff;
+term aligned (a: addr) (n: size): wff;
+term writable (a: addr) (n: size): wff;
+term readable (a: addr) (n: size): wff;
+
+--| @relation addr addr_eq addr_refl addr_trans addr_sym _
+axiom addr_refl (a: addr): $ addr_eq a a $;
+axiom addr_trans (a b c: addr):
+  $ addr_eq a b $ > $ addr_eq b c $ > $ addr_eq a c $;
+axiom addr_sym (a b: addr): $ addr_eq a b $ > $ addr_eq b a $;
+
+--| @relation size size_eq size_refl size_trans size_sym _
+axiom size_refl (n: size): $ size_eq n n $;
+axiom size_trans (n m p: size):
+  $ size_eq n m $ > $ size_eq m p $ > $ size_eq n p $;
+axiom size_sym (n m: size): $ size_eq n m $ > $ size_eq m n $;
+
+--| @relation wff bi bi_refl bi_trans bi_sym bi_mp
+axiom bi_refl (x: wff): $ bi x x $;
+axiom bi_trans (x y z: wff): $ bi x y $ > $ bi y z $ > $ bi x z $;
+axiom bi_sym (x y: wff): $ bi x y $ > $ bi y x $;
+axiom bi_mp (x y: wff): $ bi x y $ > $ x $ > $ y $;
+
+-- Congruences for address arithmetic
+--| @congr
+axiom offset_congr (a b: addr) (n m: size):
+  $ addr_eq a b $ > $ size_eq n m $ > $ addr_eq (offset a n) (offset b m) $;
+
+-- Congruences for predicates (note: conclusions are wff-level `bi` so
+-- transport happens via the wff relation bundle's bi_mp theorem).
+--| @congr
+axiom in_frame_congr (a b: addr) (n m: size):
+  $ addr_eq a b $ > $ size_eq n m $ > $ bi (in_frame a n) (in_frame b m) $;
+--| @congr
+axiom aligned_congr (a b: addr) (n m: size):
+  $ addr_eq a b $ > $ size_eq n m $ > $ bi (aligned a n) (aligned b m) $;
+--| @congr
+axiom writable_congr (a b: addr) (n m: size):
+  $ addr_eq a b $ > $ size_eq n m $ > $ bi (writable a n) (writable b m) $;
+--| @congr
+axiom readable_congr (a b: addr) (n m: size):
+  $ addr_eq a b $ > $ size_eq n m $ > $ bi (readable a n) (readable b m) $;
+
+-- Equational: offset by zero is the identity address.
+--| @saturation ltr
+axiom offset_zero (a: addr): $ addr_eq (offset a zero_size) a $;
+
+-- Horn rules: the PCC-style fact derivations.
+--| @saturation horn
+axiom writable_from_frame_aligned (a: addr) (n: size):
+  $ in_frame a n $ > $ aligned a n $ > $ writable a n $;
+
+--| @saturation horn
+axiom readable_from_writable (a: addr) (n: size):
+  $ writable a n $ > $ readable a n $;
+
+-- Theorems to poke.
+
+theorem writable_direct (a: addr) (n: size):
+  $ in_frame a n $ > $ aligned a n $ > $ writable a n $;
+
+theorem readable_chain (a: addr) (n: size):
+  $ in_frame a n $ > $ aligned a n $ > $ readable a n $;
+
+theorem writable_modulo_addr_eq (a b: addr) (n: size):
+  $ addr_eq a b $ > $ in_frame a n $ > $ aligned a n $ > $ writable b n $;
+
+theorem writable_at_offset_zero (a: addr) (n: size):
+  $ in_frame (offset a zero_size) n $ >
+  $ aligned (offset a zero_size) n $ >
+  $ writable a n $;
+
+theorem readable_chain_modulo_eq (a b: addr) (n m: size):
+  $ addr_eq a b $ > $ size_eq n m $ >
+  $ in_frame a n $ > $ aligned a n $ >
+  $ readable b m $;
+
+theorem writable_through_two_offsets (a: addr) (n: size):
+  $ in_frame (offset (offset a zero_size) zero_size) n $ >
+  $ aligned (offset (offset a zero_size) zero_size) n $ >
+  $ writable a n $;

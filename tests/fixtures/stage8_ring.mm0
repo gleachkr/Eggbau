@@ -1,0 +1,122 @@
+-- Commutative ring fixture for poking eggbau from the CLI:
+--
+--   cargo run -- discover tests/fixtures/stage8_ring.mm0
+--   cargo run -- emit-egglog tests/fixtures/stage8_ring.mm0
+--   cargo run -- prove-egglog tests/fixtures/stage8_ring.mm0 \
+--       --theorem difference_of_squares
+--   cargo run -- emit-auf tests/fixtures/stage8_ring.mm0 \
+--       --theorem neg_mul_neg
+--
+-- The axioms are a standard equational commutative ring: additive abelian
+-- group on (R, +, neg, 0), commutative monoid on (R, *, 1) with the
+-- absorbing zero, two-sided distributivity oriented in the factoring
+-- direction, neg/mul interplay, and `sub` defined as `add x (neg y)`. Each
+-- saturation law shrinks or preserves term size, so saturation terminates
+-- under eggbau's `:until` schedule.
+
+delimiter $ ( ) $;
+sort R;
+provable sort wff;
+term eq (x y: R): wff;
+term zero: R;
+term one: R;
+term add (x y: R): R;
+term mul (x y: R): R;
+term neg (x: R): R;
+term sub (x y: R): R;
+
+--| @relation R eq eq_refl eq_trans eq_sym _
+axiom eq_refl (x: R): $ eq x x $;
+axiom eq_trans (x y z: R): $ eq x y $ > $ eq y z $ > $ eq x z $;
+axiom eq_sym (x y: R): $ eq x y $ > $ eq y x $;
+
+--| @congr
+axiom add_congr (a b c d: R):
+  $ eq a b $ > $ eq c d $ > $ eq (add a c) (add b d) $;
+--| @congr
+axiom mul_congr (a b c d: R):
+  $ eq a b $ > $ eq c d $ > $ eq (mul a c) (mul b d) $;
+--| @congr
+axiom neg_congr (a b: R): $ eq a b $ > $ eq (neg a) (neg b) $;
+--| @congr
+axiom sub_congr (a b c d: R):
+  $ eq a b $ > $ eq c d $ > $ eq (sub a c) (sub b d) $;
+
+-- Additive abelian group
+--| @saturation ltr
+axiom add_zero (x: R): $ eq (add x zero) x $;
+--| @saturation ltr
+axiom zero_add (x: R): $ eq (add zero x) x $;
+--| @saturation ltr
+axiom add_comm (x y: R): $ eq (add x y) (add y x) $;
+--| @saturation ltr
+axiom add_assoc (x y z: R):
+  $ eq (add (add x y) z) (add x (add y z)) $;
+--| @saturation ltr
+axiom add_neg (x: R): $ eq (add x (neg x)) zero $;
+--| @saturation ltr
+axiom neg_neg (x: R): $ eq (neg (neg x)) x $;
+--| @saturation ltr
+axiom neg_zero: $ eq (neg zero) zero $;
+
+-- Multiplicative commutative monoid + absorbing zero
+--| @saturation ltr
+axiom mul_one (x: R): $ eq (mul x one) x $;
+--| @saturation ltr
+axiom one_mul (x: R): $ eq (mul one x) x $;
+--| @saturation ltr
+axiom mul_zero (x: R): $ eq (mul x zero) zero $;
+--| @saturation ltr
+axiom zero_mul (x: R): $ eq (mul zero x) zero $;
+--| @saturation ltr
+axiom mul_comm (x y: R): $ eq (mul x y) (mul y x) $;
+--| @saturation ltr
+axiom mul_assoc (x y z: R):
+  $ eq (mul (mul x y) z) (mul x (mul y z)) $;
+
+-- Distributivity. Marked `both` so eggbau may expand products of sums as
+-- well as factor them. The factoring direction alone is not enough to
+-- relate `mul(x, sub(y,z))` to `sub(mul x y, mul x z)` once `sub` has been
+-- unfolded into `add` + `neg`. With `both` the e-graph grows quadratically
+-- in the number of seeded sum-of-products subterms, but the `:until`
+-- schedule keeps that bounded for the small fixture theorems here.
+--| @saturation both
+axiom factor_l (x y z: R):
+  $ eq (add (mul x y) (mul x z)) (mul x (add y z)) $;
+--| @saturation both
+axiom factor_r (x y z: R):
+  $ eq (add (mul x z) (mul y z)) (mul (add x y) z) $;
+
+-- Negation / multiplication interplay (neutral in size).
+--| @saturation ltr
+axiom neg_mul_l (x y: R): $ eq (mul (neg x) y) (neg (mul x y)) $;
+--| @saturation ltr
+axiom neg_mul_r (x y: R): $ eq (mul x (neg y)) (neg (mul x y)) $;
+
+-- Subtraction (shrinking: `sub` disappears in favour of add+neg).
+--| @saturation ltr
+axiom sub_def (x y: R): $ eq (sub x y) (add x (neg y)) $;
+
+-- Theorems to poke.
+
+theorem sub_self (x: R): $ eq (sub x x) zero $;
+
+theorem sub_zero (x: R): $ eq (sub x zero) x $;
+
+theorem zero_sub_neg (x: R): $ eq (sub zero x) (neg x) $;
+
+theorem mul_neg_one (x: R): $ eq (mul (neg one) x) (neg x) $;
+
+theorem neg_mul_neg (x y: R): $ eq (mul (neg x) (neg y)) (mul x y) $;
+
+theorem add_sub_cancel (x y: R): $ eq (add x (sub y x)) y $;
+
+theorem distrib_sub (x y z: R):
+  $ eq (mul x (sub y z)) (sub (mul x y) (mul x z)) $;
+
+theorem difference_of_squares (a b: R):
+  $ eq (mul (add a b) (sub a b))
+       (sub (mul a a) (mul b b)) $;
+
+theorem factor_two (x: R):
+  $ eq (add x x) (mul (add one one) x) $;

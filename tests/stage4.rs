@@ -65,11 +65,10 @@ fn proves_designated_equality_theorem_and_extracts_proof() {
     let proof = eggbau::egg::prove_theorem(&env, &export, "target").unwrap();
 
     assert_eq!(proof.theorem, "target");
-    assert_eq!(proof.goal.constructor, "ProvenEqS");
-    assert!(proof.egglog_program.contains("(prove (ProvenEqS"));
+    assert_eq!(proof.goal.kind, eggbau::egg::EgglogGoalKind::Equality);
+    assert!(proof.egglog_program.contains("(prove (= (F"));
     assert!(proof.proof_debug.contains("Rule f_id"));
-    assert!(proof.proof_debug.contains("Rule prove_eq_s"));
-    assert!(proof.proof_summary.rule >= 2);
+    assert!(proof.proof_summary.rule >= 1);
 }
 
 #[test]
@@ -78,7 +77,7 @@ fn theorem_hypothesis_becomes_allowed_input_fact() {
     let export = ExportEnv::from_mm0(&env).unwrap();
     let proof = eggbau::egg::prove_theorem(&env, &export, "target").unwrap();
 
-    assert_eq!(proof.goal.constructor, "ProvenP");
+    assert_eq!(proof.goal.kind, eggbau::egg::EgglogGoalKind::Fact);
     assert!(proof.proof_debug.contains("Rule p_from_q"));
     assert!(proof.allowed_fiats.iter().any(|fiat| {
         fiat.proposition.contains("q (EggbauVarTargetX)")
@@ -123,7 +122,8 @@ fn public_prove_theorem_api_wraps_stage_four_result() {
     )
     .unwrap();
 
-    assert!(result.auf.is_empty());
+    assert!(result.auf.contains("target\n------"));
+    assert!(result.auf.contains("by f_id"));
     assert!(
         result
             .egglog_program

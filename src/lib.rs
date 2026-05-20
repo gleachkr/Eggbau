@@ -99,6 +99,9 @@ pub enum EggbauError {
     CertTranslate(#[from] cert::TranslateError),
 
     #[error("{0}")]
+    AufRender(#[from] auf::AufRenderError),
+
+    #[error("{0}")]
     ParseMm0(#[from] mm0::Mm0ParseError),
 
     #[error("unsupported command: {0}")]
@@ -107,19 +110,30 @@ pub enum EggbauError {
 
 /// Run the current proof-search pipeline for a designated theorem.
 pub fn prove_theorem(mm0: &str, config: EggbauConfig) -> Result<ProveResult, EggbauError> {
-    let theorem = config.theorem.ok_or_else(|| {
+    let EggbauConfig {
+        theorem,
+        output_mode,
+        allow_synthetic_discovery: _,
+    } = config;
+    let theorem = theorem.ok_or_else(|| {
         EggbauError::UnsupportedCommand("prove_theorem requires a theorem name".to_owned())
     })?;
     let env = mm0::parse_env(mm0)?;
     let export_env = export::ExportEnv::from_mm0(&env)?;
     let proof = egg::prove_theorem(&env, &export_env, &theorem)?;
-    let mut certificate_json = serde_json::to_value(
-        proof
-            .certificate
-            .clone()
-            .unwrap_or_else(cert::Certificate::empty),
-    )
-    .expect("certificate should serialize to JSON");
+    let certificate = proof
+        .certificate
+        .clone()
+        .unwrap_or_else(cert::Certificate::empty);
+    let auf = auf::render_certificate(
+        &env,
+        &export_env,
+        &theorem,
+        &certificate,
+        auf::AufRenderOptions { output_mode },
+    )?;
+    let mut certificate_json =
+        serde_json::to_value(certificate).expect("certificate should serialize to JSON");
     if let serde_json::Value::Object(object) = &mut certificate_json {
         object.insert(
             "stage4_proof".to_owned(),
@@ -128,7 +142,7 @@ pub fn prove_theorem(mm0: &str, config: EggbauConfig) -> Result<ProveResult, Egg
     }
 
     Ok(ProveResult {
-        auf: String::new(),
+        auf: auf.text,
         egglog_program: proof.egglog_program,
         certificate_json,
         diagnostics: proof.diagnostics,

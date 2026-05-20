@@ -911,7 +911,14 @@ impl FormulaContext {
                     let Some(token) = notation.tokens.first().cloned() else {
                         continue;
                     };
-                    prefixes.insert(token, PrefixNotation { term, arity });
+                    prefixes.insert(
+                        token,
+                        PrefixNotation {
+                            term,
+                            arity,
+                            precedence: notation_precedence(notation),
+                        },
+                    );
                 }
                 NotationKind::Infixl => {
                     let Some(token) = notation.tokens.first().cloned() else {
@@ -1077,6 +1084,7 @@ fn visible_names_from_notation_head(source: &str) -> Vec<String> {
 struct PrefixNotation {
     term: String,
     arity: usize,
+    precedence: u32,
 }
 
 #[derive(Clone, Debug)]
@@ -1225,7 +1233,7 @@ struct MathParser<'a> {
 
 impl MathParser<'_> {
     fn parse_expr(&mut self, min_precedence: u32) -> Result<MathExpr, String> {
-        let mut lhs = self.parse_prefix_or_application()?;
+        let mut lhs = self.parse_prefix_or_application(min_precedence)?;
 
         loop {
             let Some(token) = self.peek_token_string() else {
@@ -1274,15 +1282,24 @@ impl MathParser<'_> {
         Ok(lhs)
     }
 
-    fn parse_prefix_or_application(&mut self) -> Result<MathExpr, String> {
-        let mut expr = if let Some(expr) = self.try_parse_prefix_general_notation()? {
+    fn parse_prefix_or_application(&mut self, min_precedence: u32) -> Result<MathExpr, String> {
+        let mut expr = if let Some(expr) = self.try_parse_prefix_general_notation(min_precedence)? {
             expr
         } else if let Some(token) = self.peek_notation_token() {
             if let Some(prefix) = self.context.prefixes.get(token).cloned() {
+                if prefix.precedence < min_precedence {
+                    return Err("operator precedence does not allow prefix notation".to_owned());
+                }
                 self.pos += 1;
-                let args = (0..prefix.arity)
-                    .map(|_| self.parse_prefix_or_application())
-                    .collect::<Result<Vec<_>, _>>()?;
+                let mut args = Vec::new();
+                for idx in 0..prefix.arity {
+                    let precedence = if idx + 1 == prefix.arity {
+                        prefix.precedence
+                    } else {
+                        u32::MAX
+                    };
+                    args.push(self.parse_expr(precedence)?);
+                }
                 if args.is_empty() {
                     MathExpr::Atom { name: prefix.term }
                 } else {
@@ -1303,7 +1320,7 @@ impl MathParser<'_> {
                 if arity > 0 && self.next_starts_argument() {
                     let head = name.clone();
                     let args = (0..arity)
-                        .map(|_| self.parse_prefix_or_application())
+                        .map(|_| self.parse_expr(u32::MAX))
                         .collect::<Result<Vec<_>, _>>()?;
                     expr = MathExpr::App { head, args };
                 }
@@ -1341,7 +1358,10 @@ impl MathParser<'_> {
         }
     }
 
-    fn try_parse_prefix_general_notation(&mut self) -> Result<Option<MathExpr>, String> {
+    fn try_parse_prefix_general_notation(
+        &mut self,
+        min_precedence: u32,
+    ) -> Result<Option<MathExpr>, String> {
         let Some(token) = self.peek_token_string() else {
             return Ok(None);
         };
@@ -1349,6 +1369,9 @@ impl MathParser<'_> {
             return Ok(None);
         };
         for notation in generals {
+            if notation.precedence < min_precedence {
+                continue;
+            }
             let start = self.pos;
             match self.match_prefix_general_notation(&notation)? {
                 Some(expr) => return Ok(Some(expr)),

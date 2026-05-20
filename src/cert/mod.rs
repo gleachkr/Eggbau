@@ -602,7 +602,8 @@ fn infer_congruence_formula(
     let base = expect_label(input.base, formulas, step_no)?;
     let child_eq = expect_label(input.child_eq, formulas, step_no)?;
     let (base_lhs, base_rhs) = expect_relation_formula(base, input.relation, step_no)?;
-    let (child_lhs, child_rhs) = expect_relation_formula(child_eq, input.relation, step_no)?;
+    let (child_relation, child_lhs, child_rhs) = expect_any_relation_formula(child_eq, step_no)?;
+    ensure_relation(context, child_relation, step_no)?;
 
     let Term::App {
         head: left_head,
@@ -759,6 +760,19 @@ fn expect_relation_formula<'a>(
     }
 }
 
+fn expect_any_relation_formula(
+    formula: &Formula,
+    step_no: usize,
+) -> Result<(&str, &Term, &Term), CertValidationError> {
+    match formula {
+        Formula::Rel { rel, lhs, rhs } => Ok((rel, lhs, rhs)),
+        _ => Err(CertValidationError::ExpectedRelation {
+            relation: "<any>".to_owned(),
+            step: step_no,
+        }),
+    }
+}
+
 pub fn formula_from_mm0(formula: &Mm0Formula, export_env: &ExportEnv) -> Option<Formula> {
     let expr = formula.expr.as_ref()?;
     match expr {
@@ -876,9 +890,6 @@ pub enum TranslateError {
 
     #[error("egglog proof used unapproved Fiat proposition: {proposition}")]
     UnapprovedFiat { proposition: String },
-
-    #[error("cannot reconstruct proof-goal bridge rule `{rule}` without a premise")]
-    EmptyGoalBridge { rule: String },
 
     #[error("egglog rule `{rule}` is not exported as a saturation conversion")]
     UnknownRule { rule: String },
@@ -1045,23 +1056,25 @@ impl<'a> TranslateCtx<'a> {
                 self.translate_rule(proof_id, name, premise_proofs, &substitution)?
             }
             egglog::proof::Justification::Trans(left, right) => {
+                let relation = self.relation_for_proof(proof_id)?;
                 let left = self.translate_proof(*left)?;
                 let right = self.translate_proof(*right)?;
                 let label = self.fresh_label("eq_trans");
                 self.steps.push(CertStep::EqTrans {
                     label: label.clone(),
-                    relation: self.input.relation.to_owned(),
+                    relation,
                     left,
                     right,
                 });
                 label
             }
             egglog::proof::Justification::Sym(inner) => {
+                let relation = self.relation_for_proof(proof_id)?;
                 let source = self.translate_proof(*inner)?;
                 let label = self.fresh_label("eq_sym");
                 self.steps.push(CertStep::EqSym {
                     label: label.clone(),
-                    relation: self.input.relation.to_owned(),
+                    relation,
                     source,
                 });
                 label
@@ -1096,16 +1109,20 @@ impl<'a> TranslateCtx<'a> {
             .cloned()
         {
             let hyp_label = self.fresh_label("hyp");
+            let hyp_formula = hypothesis.formula.clone();
             self.steps.push(CertStep::Hyp {
                 label: hyp_label.clone(),
                 hyp_index: hypothesis.hyp_index,
-                formula: hypothesis.formula,
+                formula: hyp_formula.clone(),
             });
             if hypothesis.needs_symmetry {
+                let Formula::Rel { rel, .. } = hyp_formula else {
+                    return Err(TranslateError::MissingFormula { label: hyp_label });
+                };
                 let sym_label = self.fresh_label("eq_sym");
                 self.steps.push(CertStep::EqSym {
                     label: sym_label.clone(),
-                    relation: self.input.relation.to_owned(),
+                    relation: rel,
                     source: hyp_label,
                 });
                 return Ok(sym_label);
@@ -1119,10 +1136,15 @@ impl<'a> TranslateCtx<'a> {
             return Err(TranslateError::UnapprovedFiat { proposition });
         }
         let term = self.term_from_egg(lhs)?;
+        let relation =
+            self.relation_for_term(&term)
+                .ok_or_else(|| TranslateError::CannotInferRelation {
+                    proposition: term_debug(&term),
+                })?;
         let label = self.fresh_label("eq_refl");
         self.steps.push(CertStep::EqRefl {
             label: label.clone(),
-            relation: self.input.relation.to_owned(),
+            relation,
             term,
         });
         Ok(label)
@@ -1135,13 +1157,8 @@ impl<'a> TranslateCtx<'a> {
         premise_proofs: &[egglog::proof::ProofId],
         substitution: &[(String, egglog::TermId)],
     ) -> Result<Label, TranslateError> {
-        if self.indexes.goal_bridge_rules.contains(name) {
-            let Some(first) = premise_proofs.first() else {
-                return Err(TranslateError::EmptyGoalBridge {
-                    rule: name.to_owned(),
-                });
-            };
-            return self.translate_proof(*first);
+        if let Some(label) = self.translate_reflexive_rule_proof(proof_id)? {
+            return Ok(label);
         }
 
         let Some(rule) = self.indexes.conversion_rules.get(name).cloned() else {
@@ -1151,7 +1168,9 @@ impl<'a> TranslateCtx<'a> {
         };
         let source = self.instantiate_pattern(&rule.source_egglog, substitution)?;
         let target = self.instantiate_pattern(&rule.target_egglog, substitution)?;
-        let mut rule_label = self.emit_rule_source_to_target(name, &rule, &source, &target);
+        let relation = self.indexes.rule_to_relation[name].clone();
+        let mut rule_label =
+            self.emit_rule_source_to_target(name, &rule, &relation, &source, &target);
 
         let actual = if let Some(first_premise) = premise_proofs.first() {
             let premise = self.input.proof_store.get(*first_premise);
@@ -1163,7 +1182,7 @@ impl<'a> TranslateCtx<'a> {
                 let trans_label = self.fresh_label("eq_trans");
                 self.steps.push(CertStep::EqTrans {
                     label: trans_label.clone(),
-                    relation: self.input.relation.to_owned(),
+                    relation: relation.clone(),
                     left: premise_label,
                     right: rule_label,
                 });
@@ -1174,13 +1193,13 @@ impl<'a> TranslateCtx<'a> {
                 let sym_label = self.fresh_label("eq_sym");
                 self.steps.push(CertStep::EqSym {
                     label: sym_label.clone(),
-                    relation: self.input.relation.to_owned(),
+                    relation: relation.clone(),
                     source: premise_label,
                 });
                 let trans_label = self.fresh_label("eq_trans");
                 self.steps.push(CertStep::EqTrans {
                     label: trans_label.clone(),
-                    relation: self.input.relation.to_owned(),
+                    relation: relation.clone(),
                     left: sym_label,
                     right: rule_label,
                 });
@@ -1214,10 +1233,32 @@ impl<'a> TranslateCtx<'a> {
         }
     }
 
+    fn translate_reflexive_rule_proof(
+        &mut self,
+        proof_id: egglog::proof::ProofId,
+    ) -> Result<Option<Label>, TranslateError> {
+        let proof = self.input.proof_store.get(proof_id);
+        let (lhs, rhs) = self.proposition_terms(proof.proposition())?;
+        if lhs != rhs {
+            return Ok(None);
+        }
+        let Some(relation) = self.relation_for_term(&lhs) else {
+            return Ok(None);
+        };
+        let label = self.fresh_label("eq_refl");
+        self.steps.push(CertStep::EqRefl {
+            label: label.clone(),
+            relation,
+            term: lhs,
+        });
+        Ok(Some(label))
+    }
+
     fn emit_rule_source_to_target(
         &mut self,
         name: &str,
         rule: &ConversionRule,
+        relation: &str,
         source: &Term,
         target: &Term,
     ) -> Label {
@@ -1225,7 +1266,7 @@ impl<'a> TranslateCtx<'a> {
         if rule.needs_symmetry_for_mm0 {
             self.steps.push(CertStep::RuleApply {
                 label: label.clone(),
-                formula: Formula::rel(self.input.relation, target.clone(), source.clone()),
+                formula: Formula::rel(relation, target.clone(), source.clone()),
                 mm0_rule: self.indexes.rule_to_theorem[name].clone(),
                 bindings: Vec::new(),
                 refs: Vec::new(),
@@ -1233,14 +1274,14 @@ impl<'a> TranslateCtx<'a> {
             let sym_label = self.fresh_label("eq_sym");
             self.steps.push(CertStep::EqSym {
                 label: sym_label.clone(),
-                relation: self.input.relation.to_owned(),
+                relation: relation.to_owned(),
                 source: label,
             });
             sym_label
         } else {
             self.steps.push(CertStep::RuleApply {
                 label: label.clone(),
-                formula: Formula::rel(self.input.relation, source.clone(), target.clone()),
+                formula: Formula::rel(relation, source.clone(), target.clone()),
                 mm0_rule: self.indexes.rule_to_theorem[name].clone(),
                 bindings: Vec::new(),
                 refs: Vec::new(),
@@ -1325,7 +1366,7 @@ impl<'a> TranslateCtx<'a> {
         let label = self.fresh_label("eq_congr");
         self.steps.push(CertStep::EqCongr {
             label: label.clone(),
-            relation: self.input.relation.to_owned(),
+            relation: congruence.relation.clone(),
             head,
             child_index,
             base: base_label,
@@ -1333,6 +1374,27 @@ impl<'a> TranslateCtx<'a> {
             mm0_congr_rule: congruence.theorem.clone(),
         });
         Ok(label)
+    }
+
+    fn relation_for_proof(
+        &self,
+        proof_id: egglog::proof::ProofId,
+    ) -> Result<String, TranslateError> {
+        let proof = self.input.proof_store.get(proof_id);
+        let lhs = self.term_from_egg(proof.proposition().lhs())?;
+        self.relation_for_term(&lhs)
+            .ok_or_else(|| TranslateError::CannotInferRelation {
+                proposition: self.proposition_string(proof.proposition()),
+            })
+    }
+
+    fn relation_for_term(&self, term: &Term) -> Option<String> {
+        let sort = self.indexes.term_sort(term)?;
+        self.input
+            .export_env
+            .relations
+            .get(sort)
+            .map(|bundle| bundle.relation.clone())
     }
 
     fn proposition_terms(
@@ -1592,15 +1654,6 @@ impl<'a> FactTranslateCtx<'a> {
         premise_proofs: &[egglog::proof::ProofId],
         substitution: &[(String, egglog::TermId)],
     ) -> Result<Label, TranslateError> {
-        if self.indexes.goal_bridge_rules.contains(name) {
-            let Some(first) = premise_proofs.first() else {
-                return Err(TranslateError::EmptyGoalBridge {
-                    rule: name.to_owned(),
-                });
-            };
-            return self.translate_proof(*first);
-        }
-
         if self.indexes.conversion_rules.contains_key(name) {
             return self.translate_conversion_rule(name, premise_proofs, substitution);
         }
@@ -1610,16 +1663,17 @@ impl<'a> FactTranslateCtx<'a> {
                 rule: name.to_owned(),
             });
         };
-        if law.hypotheses.len() != premise_proofs.len() {
+        let expected_count = law.hypotheses.len();
+        if expected_count != premise_proofs.len() {
             return Err(TranslateError::HornPremiseCount {
                 rule: name.to_owned(),
-                expected: law.hypotheses.len(),
+                expected: expected_count,
                 actual: premise_proofs.len(),
             });
         }
 
         let mut refs = Vec::new();
-        for (premise, proof_id) in law.hypotheses.iter().zip(premise_proofs) {
+        for (premise, proof_id) in law.hypotheses.iter().zip(premise_proofs.iter()) {
             let label = self.translate_proof(*proof_id)?;
             let expected = self.instantiate_horn_premise(premise, substitution)?;
             let label = self.align_formula(label, &expected)?;
@@ -1968,10 +2022,15 @@ impl<'a> FactTranslateCtx<'a> {
         child_label: Label,
     ) -> Result<Label, TranslateError> {
         let child_formula = self.formula_for(&child_label)?.clone();
-        let Formula::Rel { lhs, rhs, .. } = child_formula else {
+        let Formula::Rel {
+            rel: child_relation,
+            lhs: child_lhs,
+            rhs: child_rhs,
+        } = child_formula
+        else {
             return Err(TranslateError::MissingFormula { label: child_label });
         };
-        if child_index >= args.len() || args[child_index] != lhs {
+        if child_index >= args.len() || args[child_index] != child_lhs {
             return Err(TranslateError::HornPremiseMismatch { label: child_label });
         }
         let Some(congruence) = self.input.export_env.congruences.get(&pred) else {
@@ -1985,7 +2044,14 @@ impl<'a> FactTranslateCtx<'a> {
         };
 
         let mut new_args = args.clone();
-        new_args[child_index] = rhs;
+        new_args[child_index] = child_rhs.clone();
+        let refs = self.fact_congruence_refs(
+            &args,
+            &new_args,
+            child_index,
+            &child_label,
+            &child_relation,
+        )?;
         let lhs_term = Term::app(pred.clone(), args);
         let rhs_term = Term::app(pred.clone(), new_args.clone());
         let equiv = Formula::rel(congruence.relation.clone(), lhs_term, rhs_term);
@@ -1998,7 +2064,7 @@ impl<'a> FactTranslateCtx<'a> {
                 formula: equiv,
                 mm0_rule: congruence.theorem.clone(),
                 bindings: Vec::new(),
-                refs: vec![Ref::label(child_label)],
+                refs,
             },
         );
 
@@ -2016,6 +2082,63 @@ impl<'a> FactTranslateCtx<'a> {
             },
         );
         Ok(label)
+    }
+
+    fn fact_congruence_refs(
+        &mut self,
+        old_args: &[Term],
+        new_args: &[Term],
+        child_index: usize,
+        child_label: &Label,
+        child_relation: &str,
+    ) -> Result<Vec<Ref>, TranslateError> {
+        let mut refs = Vec::new();
+        for (idx, (old_arg, new_arg)) in old_args.iter().zip(new_args).enumerate() {
+            if idx == child_index {
+                let expected = self.relation_for_term(old_arg).ok_or_else(|| {
+                    TranslateError::CannotInferRelation {
+                        proposition: term_debug(old_arg),
+                    }
+                })?;
+                if expected != child_relation {
+                    return Err(TranslateError::CannotInferRelation {
+                        proposition: format!(
+                            "{} uses {}, expected {}",
+                            term_debug(old_arg),
+                            child_relation,
+                            expected
+                        ),
+                    });
+                }
+                refs.push(Ref::label(child_label.clone()));
+            } else if old_arg == new_arg {
+                let relation = self.relation_for_term(old_arg).ok_or_else(|| {
+                    TranslateError::CannotInferRelation {
+                        proposition: term_debug(old_arg),
+                    }
+                })?;
+                let label = self.fresh_label("eq_refl");
+                let formula = Formula::rel(relation.clone(), old_arg.clone(), old_arg.clone());
+                self.push_step(
+                    label.clone(),
+                    formula,
+                    CertStep::EqRefl {
+                        label: label.clone(),
+                        relation,
+                        term: old_arg.clone(),
+                    },
+                );
+                refs.push(Ref::label(label));
+            } else {
+                return Err(TranslateError::MissingEqualityProof {
+                    sort: "<unknown>".to_owned(),
+                    relation: "<unknown>".to_owned(),
+                    lhs_egglog: term_debug(old_arg),
+                    rhs_egglog: term_debug(new_arg),
+                });
+            }
+        }
+        Ok(refs)
     }
 
     fn eq_congr_formula(
@@ -2505,7 +2628,6 @@ struct TranslateIndexes {
     rule_to_theorem: HashMap<String, String>,
     rule_to_relation: HashMap<String, String>,
     horn_rules: HashMap<String, SaturationHornLaw>,
-    goal_bridge_rules: HashSet<String>,
 }
 
 impl TranslateIndexes {
@@ -2531,17 +2653,6 @@ impl TranslateIndexes {
             }
             term_sorts.insert(term.source_name.clone(), term.result_sort.clone());
         }
-        for constructor in export_env.proof_goals.facts.values() {
-            if let Some((fact, _)) = export_env
-                .proof_goals
-                .facts
-                .iter()
-                .find(|(_, name)| *name == constructor)
-            {
-                heads.insert(constructor.clone(), fact.clone());
-            }
-        }
-
         let mut conversion_rules = HashMap::new();
         let mut rule_to_theorem = HashMap::new();
         let mut rule_to_relation = HashMap::new();
@@ -2558,20 +2669,6 @@ impl TranslateIndexes {
             .map(|law| (law.rule_name.clone(), law.clone()))
             .collect::<HashMap<_, _>>();
 
-        let mut goal_bridge_rules = export_env
-            .proof_goals
-            .equality
-            .keys()
-            .map(|sort| format!("prove_eq_{}", snake_ident(sort)))
-            .collect::<HashSet<_>>();
-        goal_bridge_rules.extend(
-            export_env
-                .proof_goals
-                .facts
-                .keys()
-                .map(|fact| format!("prove_{}", snake_ident(fact))),
-        );
-
         Self {
             heads,
             source_heads,
@@ -2581,7 +2678,6 @@ impl TranslateIndexes {
             rule_to_theorem,
             rule_to_relation,
             horn_rules,
-            goal_bridge_rules,
         }
     }
 
@@ -2621,21 +2717,6 @@ fn proof_children(justification: &egglog::proof::Justification) -> Vec<egglog::p
             proof, child_proof, ..
         } => vec![*proof, *child_proof],
     }
-}
-
-fn snake_ident(name: &str) -> String {
-    let mut out = String::new();
-    for (idx, ch) in name.chars().enumerate() {
-        if ch.is_ascii_alphanumeric() || ch == '_' {
-            if idx == 0 && ch.is_ascii_digit() {
-                out.push('_');
-            }
-            out.push(ch.to_ascii_lowercase());
-        } else {
-            out.push('_');
-        }
-    }
-    if out.is_empty() { "_".to_owned() } else { out }
 }
 
 #[cfg(test)]

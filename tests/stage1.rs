@@ -331,6 +331,119 @@ fn parses_aufbau_relation_congruence_and_ignored_rewrites() {
 }
 
 #[test]
+fn simple_prefix_argument_uses_declared_precedence() {
+    let env = parse_env(
+        r#"
+delimiter $ ( ) $;
+provable sort jdg;
+sort wff;
+term imp (a b: wff): wff; infixr imp: $->$ prec 25;
+term provable (a: wff): jdg; prefix provable: $⊢$ prec 25;
+theorem t (a b: wff): $ ⊢ a -> b $;
+"#,
+    )
+    .unwrap();
+
+    let theorem = env.theorem("t").unwrap();
+    let MathExpr::App { head, args } = theorem.conclusion.expr.as_ref().unwrap() else {
+        panic!("conclusion should parse as a provability judgment");
+    };
+    assert_eq!(head, "provable");
+    assert_eq!(args[0].head(), "imp");
+}
+
+#[test]
+fn higher_precedence_prefix_still_binds_before_lower_infix() {
+    let env = parse_env(
+        r#"
+delimiter $ ( ) $;
+provable sort wff;
+term imp (a b: wff): wff; infixr imp: $->$ prec 25;
+term not (a: wff): wff; prefix not: $not$ prec 35;
+theorem t (a b: wff): $ not a -> b $;
+"#,
+    )
+    .unwrap();
+
+    let theorem = env.theorem("t").unwrap();
+    let MathExpr::App { head, args } = theorem.conclusion.expr.as_ref().unwrap() else {
+        panic!("conclusion should parse as an implication");
+    };
+    assert_eq!(head, "imp");
+    assert_eq!(args[0].head(), "not");
+    assert_eq!(args[1].head(), "b");
+}
+
+#[test]
+fn higher_precedence_infix_binds_inside_lower_precedence_infix() {
+    let env = parse_env(
+        r#"
+delimiter $ ( ) $;
+provable sort wff;
+term iff (a b: wff): wff; infixr iff: $<->$ prec 20;
+term imp (a b: wff): wff; infixr imp: $->$ prec 25;
+theorem t (a b c: wff): $ a <-> b -> c $;
+"#,
+    )
+    .unwrap();
+
+    let theorem = env.theorem("t").unwrap();
+    let MathExpr::App { head, args } = theorem.conclusion.expr.as_ref().unwrap() else {
+        panic!("conclusion should parse as an iff");
+    };
+    assert_eq!(head, "iff");
+    assert_eq!(args[0].head(), "a");
+    assert_eq!(args[1].head(), "imp");
+}
+
+#[test]
+fn simple_infix_right_associativity_is_respected() {
+    let env = parse_env(
+        r#"
+delimiter $ ( ) $;
+provable sort wff;
+term imp (a b: wff): wff; infixr imp: $->$ prec 25;
+theorem t (a b c: wff): $ a -> b -> c $;
+"#,
+    )
+    .unwrap();
+
+    let theorem = env.theorem("t").unwrap();
+    let MathExpr::App { head, args } = theorem.conclusion.expr.as_ref().unwrap() else {
+        panic!("conclusion should parse as an implication");
+    };
+    assert_eq!(head, "imp");
+    assert_eq!(args[0].head(), "a");
+    assert_eq!(args[1].head(), "imp");
+}
+
+#[test]
+fn simple_infix_left_associativity_is_respected() {
+    let env = parse_env(
+        r#"
+delimiter $ ( ) $;
+sort s;
+provable sort wff;
+term mul (a b: s): s; infixl mul: $*$ prec 30;
+term p (x: s): wff;
+theorem t (a b c: s): $ p (a * b * c) $;
+"#,
+    )
+    .unwrap();
+
+    let theorem = env.theorem("t").unwrap();
+    let MathExpr::App { args, .. } = theorem.conclusion.expr.as_ref().unwrap() else {
+        panic!("conclusion should parse as a predicate application");
+    };
+    let MathExpr::App { head, args } = &args[0] else {
+        panic!("predicate argument should parse as multiplication");
+    };
+    assert_eq!(head, "mul");
+    assert_eq!(args[0].head(), "mul");
+    assert_eq!(args[1].head(), "c");
+}
+
+#[test]
 fn desugars_prefix_infix_and_constant_notation_to_kernel_terms() {
     let env = parse_env(common::AUFBAU_PASS_NORMALIZE_IDENTITY).unwrap();
 

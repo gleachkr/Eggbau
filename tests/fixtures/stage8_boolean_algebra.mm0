@@ -1,0 +1,127 @@
+-- Boolean algebra fixture for poking eggbau from the CLI:
+--
+--   cargo run -- discover tests/fixtures/stage8_boolean_algebra.mm0
+--   cargo run -- emit-egglog tests/fixtures/stage8_boolean_algebra.mm0
+--   cargo run -- prove-egglog tests/fixtures/stage8_boolean_algebra.mm0 \
+--       --theorem consensus_or_factor
+--   cargo run -- emit-auf tests/fixtures/stage8_boolean_algebra.mm0 \
+--       --theorem shannon
+--
+-- The axiom set is a "bog standard" equational boolean algebra: ACI for
+-- ∧/∨, identity, annihilation, absorption, complement, double negation,
+-- De Morgan, and factor-direction distributivity. Each axiom is shrinking
+-- or neutral in term size, so saturation terminates quickly and the
+-- :until clause on the saturation schedule keeps proof extraction fast.
+
+delimiter $ ( ) $;
+sort bool;
+provable sort wff;
+term eq (x y: bool): wff;
+term top: bool;
+term bot: bool;
+term and (x y: bool): bool;
+term or (x y: bool): bool;
+term not (x: bool): bool;
+
+--| @relation bool eq eq_refl eq_trans eq_sym _
+axiom eq_refl (x: bool): $ eq x x $;
+axiom eq_trans (x y z: bool): $ eq x y $ > $ eq y z $ > $ eq x z $;
+axiom eq_sym (x y: bool): $ eq x y $ > $ eq y x $;
+
+--| @congr
+axiom and_congr (a b c d: bool):
+  $ eq a b $ > $ eq c d $ > $ eq (and a c) (and b d) $;
+--| @congr
+axiom or_congr (a b c d: bool):
+  $ eq a b $ > $ eq c d $ > $ eq (or a c) (or b d) $;
+--| @congr
+axiom not_congr (a b: bool): $ eq a b $ > $ eq (not a) (not b) $;
+
+-- Lattice axioms (and)
+--| @saturation ltr
+axiom and_comm (x y: bool): $ eq (and x y) (and y x) $;
+--| @saturation ltr
+axiom and_assoc (x y z: bool):
+  $ eq (and (and x y) z) (and x (and y z)) $;
+--| @saturation ltr
+axiom and_idem (x: bool): $ eq (and x x) x $;
+--| @saturation ltr
+axiom and_top (x: bool): $ eq (and top x) x $;
+--| @saturation ltr
+axiom and_bot (x: bool): $ eq (and bot x) bot $;
+
+-- Lattice axioms (or)
+--| @saturation ltr
+axiom or_comm (x y: bool): $ eq (or x y) (or y x) $;
+--| @saturation ltr
+axiom or_assoc (x y z: bool):
+  $ eq (or (or x y) z) (or x (or y z)) $;
+--| @saturation ltr
+axiom or_idem (x: bool): $ eq (or x x) x $;
+--| @saturation ltr
+axiom or_bot (x: bool): $ eq (or bot x) x $;
+--| @saturation ltr
+axiom or_top (x: bool): $ eq (or top x) top $;
+
+-- Absorption
+--| @saturation ltr
+axiom and_absorb (x y: bool): $ eq (and x (or x y)) x $;
+--| @saturation ltr
+axiom or_absorb (x y: bool): $ eq (or x (and x y)) x $;
+
+-- Complementation
+--| @saturation ltr
+axiom and_compl (x: bool): $ eq (and x (not x)) bot $;
+--| @saturation ltr
+axiom or_compl (x: bool): $ eq (or x (not x)) top $;
+
+-- Negation laws
+--| @saturation ltr
+axiom not_not (x: bool): $ eq (not (not x)) x $;
+--| @saturation ltr
+axiom not_top: $ eq (not top) bot $;
+--| @saturation ltr
+axiom not_bot: $ eq (not bot) top $;
+--| @saturation ltr
+axiom demorgan_and (x y: bool):
+  $ eq (not (and x y)) (or (not x) (not y)) $;
+--| @saturation ltr
+axiom demorgan_or (x y: bool):
+  $ eq (not (or x y)) (and (not x) (not y)) $;
+
+-- Distributivity (factoring direction only: keeps the e-graph small).
+--| @saturation ltr
+axiom or_factor (x y z: bool):
+  $ eq (or (and x y) (and x z)) (and x (or y z)) $;
+--| @saturation ltr
+axiom and_factor (x y z: bool):
+  $ eq (and (or x y) (or x z)) (or x (and y z)) $;
+
+-- Theorems to poke. Each is provable from the axioms above; pick one with
+-- --theorem when invoking emit-auf or prove-egglog.
+
+theorem and_top_via_comm (x: bool): $ eq (and x top) x $;
+
+theorem or_annihilation (x: bool): $ eq (or x top) top $;
+
+theorem double_neg (x: bool): $ eq (not (not x)) x $;
+
+theorem de_morgan (x y: bool):
+  $ eq (not (and x y)) (or (not x) (not y)) $;
+
+theorem absorption (x y: bool): $ eq (or x (and x y)) x $;
+
+theorem consensus_or_factor (x y: bool):
+  $ eq (or (and x y) (and x (not y))) x $;
+
+theorem consensus_and_factor (x y: bool):
+  $ eq (and (or x y) (or x (not y))) x $;
+
+theorem chained_de_morgan (x y z: bool):
+  $ eq (not (or x (and y z))) (and (not x) (or (not y) (not z))) $;
+
+theorem shannon (x y: bool):
+  $ eq x (or (and y x) (and (not y) x)) $;
+
+theorem compound_complement (x y: bool):
+  $ eq (and (not (or x y)) (or x y)) bot $;

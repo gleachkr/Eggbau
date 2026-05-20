@@ -4,7 +4,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::mm0::{Formula, MathExpr, Mm0Env, SaturationMode, TheoremDecl};
+use crate::mm0::{Formula, MathExpr, Mm0Env, SaturationMode, TermDecl, TheoremDecl};
 use crate::{EggbauError, mm0};
 
 /// Stage-0 discovery deliberately authorizes nothing.
@@ -310,9 +310,14 @@ fn discover_horn_rules(env: &Mm0Env) -> Vec<HornCandidate> {
         .iter()
         .filter(|theorem| !is_already_saturation(env, &theorem.name))
         .filter(|theorem| theorem.unsupported_reason.is_none())
+        .filter(|theorem| is_fact_formula(env, &theorem.conclusion))
         .filter(|theorem| !theorem.hypotheses.is_empty())
-        .filter(|theorem| is_atomic_fact(env, &theorem.conclusion))
-        .filter(|theorem| theorem.hypotheses.iter().all(is_atomic))
+        .filter(|theorem| {
+            theorem
+                .hypotheses
+                .iter()
+                .all(|formula| is_horn_premise_formula(env, formula))
+        })
         .map(|theorem| HornCandidate {
             theorem: theorem.name.clone(),
             rule: format_rule(theorem),
@@ -437,14 +442,25 @@ fn validate_saturation_shape(
                 .ok_or_else(|| "conversion conclusion is not a declared relation".to_owned())
         }
         SaturationMode::Horn => {
+            if !is_fact_formula(env, &theorem.conclusion) {
+                return Err("horn conclusion is not an atomic fact relation".to_owned());
+            }
             if theorem.hypotheses.is_empty() {
-                return Err("horn saturation rules require hypotheses".to_owned());
+                return Err(
+                    "horn rules require at least one premise; egglog cannot instantiate \
+                     schematic conclusions and zero-premise atoms should be registered \
+                     as facts instead"
+                        .to_owned(),
+                );
             }
-            if !is_atomic_fact(env, &theorem.conclusion) {
-                return Err("horn conclusion is not an atomic fact".to_owned());
-            }
-            if !theorem.hypotheses.iter().all(is_atomic) {
-                return Err("horn hypotheses must be atomic formulas".to_owned());
+            if !theorem
+                .hypotheses
+                .iter()
+                .all(|formula| is_horn_premise_formula(env, formula))
+            {
+                return Err(
+                    "horn hypotheses must be fact relations or declared relations".to_owned(),
+                );
             }
             Ok(())
         }
@@ -567,15 +583,45 @@ struct RelationShape<'a> {
     rhs: &'a MathExpr,
 }
 
-fn is_atomic_fact(env: &Mm0Env, formula: &Formula) -> bool {
-    is_atomic(formula) && relation_formula(env, formula).is_none()
+fn is_horn_premise_formula(env: &Mm0Env, formula: &Formula) -> bool {
+    relation_formula(env, formula).is_some() || is_fact_formula(env, formula)
 }
 
-fn is_atomic(formula: &Formula) -> bool {
-    matches!(
-        formula.expr,
-        Some(MathExpr::Atom { .. }) | Some(MathExpr::App { .. })
-    ) && formula.unsupported_reason.is_none()
+fn is_fact_formula(env: &Mm0Env, formula: &Formula) -> bool {
+    if formula.unsupported_reason.is_some() || relation_formula(env, formula).is_some() {
+        return false;
+    }
+
+    let Some(expr) = formula.expr.as_ref() else {
+        return false;
+    };
+    let Some(term) = env.terms.iter().find(|term| term.name == expr.head()) else {
+        return false;
+    };
+    if term.unsupported_reason.is_some() || !env.sort_is_provable(&term.result_sort) {
+        return false;
+    }
+
+    let input_sorts = term_input_sorts(term);
+    let args: &[MathExpr] = match expr {
+        MathExpr::Atom { .. } => &[],
+        MathExpr::App { args, .. } => args,
+    };
+    args.len() == input_sorts.len()
+        && !input_sorts
+            .iter()
+            .any(|sort| env.sort_is_provable(sort.as_str()))
+}
+
+fn term_input_sorts(term: &TermDecl) -> Vec<String> {
+    if term.input_sorts.is_empty() {
+        term.binders
+            .iter()
+            .map(|binder| binder.sort.clone())
+            .collect()
+    } else {
+        term.input_sorts.clone()
+    }
 }
 
 fn application_head(expr: &MathExpr) -> Option<&str> {

@@ -1,0 +1,153 @@
+-- Bit-vector word arithmetic fixture for poking eggbau from the CLI:
+--
+--   cargo run -- discover tests/fixtures/stage8_bitvector_arith.mm0
+--   cargo run -- emit-egglog tests/fixtures/stage8_bitvector_arith.mm0
+--   cargo run -- prove-egglog tests/fixtures/stage8_bitvector_arith.mm0 \
+--       --theorem xor_cancel_chain
+--   cargo run -- emit-auf tests/fixtures/stage8_bitvector_arith.mm0 \
+--       --theorem sub_self
+--
+-- The theory mixes XOR algebra (commutative, associative, self-inverse) with a
+-- small two's-complement-style additive group (bv0, bv_add, bv_neg) and the
+-- shift/sub identities that come up when normalising machine-word
+-- expressions in the style of PCC/RISC-V verification. All saturation laws
+-- are shrinking or neutral in term size, so saturation terminates quickly
+-- under the eggbau `:until` schedule.
+
+delimiter $ ( ) $;
+sort bv;
+provable sort wff;
+term bv_eq (x y: bv): wff;
+term bv0: bv;
+term bv_ones: bv;
+term bv_add (x y: bv): bv;
+term bv_neg (x: bv): bv;
+term bv_sub (x y: bv): bv;
+term bv_and (x y: bv): bv;
+term bv_or (x y: bv): bv;
+term bv_xor (x y: bv): bv;
+term bv_not (x: bv): bv;
+term bv_shl_one (x: bv): bv;
+
+--| @relation bv bv_eq bv_eq_refl bv_eq_trans bv_eq_sym _
+axiom bv_eq_refl (x: bv): $ bv_eq x x $;
+axiom bv_eq_trans (x y z: bv):
+  $ bv_eq x y $ > $ bv_eq y z $ > $ bv_eq x z $;
+axiom bv_eq_sym (x y: bv): $ bv_eq x y $ > $ bv_eq y x $;
+
+--| @congr
+axiom bv_add_congr (a b c d: bv):
+  $ bv_eq a b $ > $ bv_eq c d $ > $ bv_eq (bv_add a c) (bv_add b d) $;
+--| @congr
+axiom bv_neg_congr (a b: bv):
+  $ bv_eq a b $ > $ bv_eq (bv_neg a) (bv_neg b) $;
+--| @congr
+axiom bv_sub_congr (a b c d: bv):
+  $ bv_eq a b $ > $ bv_eq c d $ > $ bv_eq (bv_sub a c) (bv_sub b d) $;
+--| @congr
+axiom bv_and_congr (a b c d: bv):
+  $ bv_eq a b $ > $ bv_eq c d $ > $ bv_eq (bv_and a c) (bv_and b d) $;
+--| @congr
+axiom bv_or_congr (a b c d: bv):
+  $ bv_eq a b $ > $ bv_eq c d $ > $ bv_eq (bv_or a c) (bv_or b d) $;
+--| @congr
+axiom bv_xor_congr (a b c d: bv):
+  $ bv_eq a b $ > $ bv_eq c d $ > $ bv_eq (bv_xor a c) (bv_xor b d) $;
+--| @congr
+axiom bv_not_congr (a b: bv):
+  $ bv_eq a b $ > $ bv_eq (bv_not a) (bv_not b) $;
+--| @congr
+axiom bv_shl_one_congr (a b: bv):
+  $ bv_eq a b $ > $ bv_eq (bv_shl_one a) (bv_shl_one b) $;
+
+-- Additive abelian group on bv (two's complement-style).
+--| @saturation ltr
+axiom bv_add_comm (x y: bv): $ bv_eq (bv_add x y) (bv_add y x) $;
+--| @saturation ltr
+axiom bv_add_assoc (x y z: bv):
+  $ bv_eq (bv_add (bv_add x y) z) (bv_add x (bv_add y z)) $;
+--| @saturation ltr
+axiom bv_add_zero (x: bv): $ bv_eq (bv_add x bv0) x $;
+--| @saturation ltr
+axiom bv_add_neg (x: bv): $ bv_eq (bv_add x (bv_neg x)) bv0 $;
+--| @saturation ltr
+axiom bv_neg_neg (x: bv): $ bv_eq (bv_neg (bv_neg x)) x $;
+--| @saturation ltr
+axiom bv_neg_zero: $ bv_eq (bv_neg bv0) bv0 $;
+--| @saturation ltr
+axiom bv_sub_def (x y: bv):
+  $ bv_eq (bv_sub x y) (bv_add x (bv_neg y)) $;
+
+-- XOR algebra: commutative, associative, self-inverse over bv0.
+--| @saturation ltr
+axiom bv_xor_comm (x y: bv): $ bv_eq (bv_xor x y) (bv_xor y x) $;
+--| @saturation ltr
+axiom bv_xor_assoc (x y z: bv):
+  $ bv_eq (bv_xor (bv_xor x y) z) (bv_xor x (bv_xor y z)) $;
+--| @saturation ltr
+axiom bv_xor_zero (x: bv): $ bv_eq (bv_xor x bv0) x $;
+--| @saturation ltr
+axiom bv_xor_self (x: bv): $ bv_eq (bv_xor x x) bv0 $;
+
+-- AND/OR lattice (subset of boolean algebra, useful for masking proofs).
+--| @saturation ltr
+axiom bv_and_comm (x y: bv): $ bv_eq (bv_and x y) (bv_and y x) $;
+--| @saturation ltr
+axiom bv_and_assoc (x y z: bv):
+  $ bv_eq (bv_and (bv_and x y) z) (bv_and x (bv_and y z)) $;
+--| @saturation ltr
+axiom bv_and_idem (x: bv): $ bv_eq (bv_and x x) x $;
+--| @saturation ltr
+axiom bv_and_zero (x: bv): $ bv_eq (bv_and x bv0) bv0 $;
+--| @saturation ltr
+axiom bv_and_ones (x: bv): $ bv_eq (bv_and x bv_ones) x $;
+--| @saturation ltr
+axiom bv_or_comm (x y: bv): $ bv_eq (bv_or x y) (bv_or y x) $;
+--| @saturation ltr
+axiom bv_or_assoc (x y z: bv):
+  $ bv_eq (bv_or (bv_or x y) z) (bv_or x (bv_or y z)) $;
+--| @saturation ltr
+axiom bv_or_idem (x: bv): $ bv_eq (bv_or x x) x $;
+--| @saturation ltr
+axiom bv_or_zero (x: bv): $ bv_eq (bv_or x bv0) x $;
+--| @saturation ltr
+axiom bv_or_ones (x: bv): $ bv_eq (bv_or x bv_ones) bv_ones $;
+
+-- Bit-complement laws (size-neutral, so safe to saturate).
+--| @saturation ltr
+axiom bv_not_not (x: bv): $ bv_eq (bv_not (bv_not x)) x $;
+--| @saturation ltr
+axiom bv_not_zero: $ bv_eq (bv_not bv0) bv_ones $;
+--| @saturation ltr
+axiom bv_not_ones: $ bv_eq (bv_not bv_ones) bv0 $;
+
+-- Left shift by one bit is doubling. Useful for collapsing
+-- `shl(shl(... 0))` chains down to the underlying additive value.
+--| @saturation ltr
+axiom bv_shl_one_def (x: bv): $ bv_eq (bv_shl_one x) (bv_add x x) $;
+
+-- Theorems to poke. Each is provable from the axioms above; pick one with
+-- --theorem when invoking emit-auf or prove-egglog.
+
+theorem sub_self (x: bv): $ bv_eq (bv_sub x x) bv0 $;
+
+theorem sub_zero (x: bv): $ bv_eq (bv_sub x bv0) x $;
+
+theorem add_sub_cancel (x y: bv):
+  $ bv_eq (bv_add x (bv_sub y x)) y $;
+
+theorem xor_cancel (x y: bv): $ bv_eq (bv_xor (bv_xor x y) y) x $;
+
+theorem xor_cancel_chain (x y z: bv):
+  $ bv_eq (bv_xor (bv_xor x y) (bv_xor y z)) (bv_xor x z) $;
+
+theorem shl_one_zero: $ bv_eq (bv_shl_one bv0) bv0 $;
+
+theorem and_or_self_absorption (x: bv):
+  $ bv_eq (bv_and x (bv_or x bv0)) x $;
+
+theorem mask_with_complement (x: bv):
+  $ bv_eq (bv_or (bv_and x bv_ones) (bv_and x bv0)) x $;
+
+theorem neg_xor_self (x: bv):
+  $ bv_eq (bv_neg (bv_xor x x)) bv0 $;
