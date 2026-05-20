@@ -133,5 +133,6 @@ Useful validation commands:
 CARGO_HOME="$PWD/.cargo_home" cargo fmt --all -- --check
 CARGO_HOME="$PWD/.cargo_home" cargo build --all-targets --all-features
 CARGO_HOME="$PWD/.cargo_home" cargo test --all-targets --all-features
-CARGO_HOME="$PWD/.cargo_home" cargo clippy --all-targets --all-features -- -D warnings
+CARGO_HOME="$PWD/.cargo_home" cargo clippy --all-targets --all-features -- \
+  -D warnings
 ```
