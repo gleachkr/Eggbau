@@ -189,6 +189,8 @@ impl EggbauSession {
             .certificate
             .clone()
             .ok_or_else(|| EggbauError::Egglog("proof did not produce a certificate".to_owned()))?;
+        let (certificate, compact_diagnostics) =
+            self.maybe_compact_certificate(theorem, &certificate)?;
         let auf_block = self.render_auf_for_theorem(theorem, &certificate)?;
         let egglog_program = self
             .options
@@ -199,8 +201,44 @@ impl EggbauSession {
             auf_block,
             egglog_program,
             certificate,
-            diagnostics: proof.diagnostics,
+            diagnostics: extend_diagnostics(proof.diagnostics, compact_diagnostics),
         })
+    }
+
+    fn maybe_compact_certificate(
+        &self,
+        theorem: &str,
+        certificate: &Certificate,
+    ) -> Result<(Certificate, Vec<Diagnostic>), EggbauError> {
+        if !self.options.auf_format.compact_enabled() {
+            return Ok((certificate.clone(), Vec::new()));
+        }
+        let (certificate, stats) = cert::compact_certificate_for_theorem(
+            certificate,
+            &self.env,
+            &self.export_env,
+            theorem,
+        )?;
+        let diagnostics = vec![
+            Diagnostic {
+                severity: crate::DiagnosticSeverity::Info,
+                message: format!(
+                    "compact mode requested for theorem {theorem}: certificate steps before \
+                     compaction: {}",
+                    stats.before_steps
+                ),
+            },
+            Diagnostic {
+                severity: crate::DiagnosticSeverity::Info,
+                message: format!(
+                    "compact mode requested for theorem {theorem}: certificate steps after \
+                     compaction: {} (removed {})",
+                    stats.after_steps,
+                    stats.removed_steps()
+                ),
+            },
+        ];
+        Ok((certificate, diagnostics))
     }
 
     fn parse_generated_theorem(&self, header: &str) -> Result<TheoremDecl, EggbauError> {
@@ -231,6 +269,11 @@ impl EggbauSession {
         }
         Ok(decl)
     }
+}
+
+fn extend_diagnostics(mut diagnostics: Vec<Diagnostic>, extra: Vec<Diagnostic>) -> Vec<Diagnostic> {
+    diagnostics.extend(extra);
+    diagnostics
 }
 
 fn normalize_generated_header(header: &str) -> String {

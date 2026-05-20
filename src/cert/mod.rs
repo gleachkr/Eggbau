@@ -70,14 +70,14 @@ impl fmt::Display for Label {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Literal {
     String { value: String },
     Integer { value: String },
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Term {
     Var { name: String },
@@ -106,7 +106,7 @@ impl Term {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Formula {
     Atom { pred: String, args: Vec<Term> },
@@ -130,14 +130,14 @@ impl Formula {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TermOrFormula {
     Term { term: Term },
     Formula { formula: Formula },
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Ref {
     Label { label: Label },
@@ -307,6 +307,60 @@ pub fn validate_certificate(
     )
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct CompactCertificateStats {
+    pub before_steps: usize,
+    pub after_steps: usize,
+}
+
+impl CompactCertificateStats {
+    pub fn removed_steps(&self) -> usize {
+        self.before_steps.saturating_sub(self.after_steps)
+    }
+}
+
+pub fn compact_certificate_for_theorem(
+    certificate: &Certificate,
+    mm0_env: &Mm0Env,
+    export_env: &ExportEnv,
+    theorem: &str,
+) -> Result<(Certificate, CompactCertificateStats), CertValidationError> {
+    let theorem = mm0_env
+        .theorem(theorem)
+        .ok_or(CertValidationError::FinalGoalMismatch)?;
+    let hypotheses = theorem
+        .hypotheses
+        .iter()
+        .map(|formula| formula_from_mm0(formula, export_env))
+        .collect::<Option<Vec<_>>>()
+        .ok_or(CertValidationError::FinalGoalMismatch)?;
+    let target = formula_from_mm0(&theorem.conclusion, export_env)
+        .ok_or(CertValidationError::FinalGoalMismatch)?;
+    compact_certificate_with_options(
+        certificate,
+        export_env,
+        ValidationOptions {
+            theorem_hypotheses: Some(&hypotheses),
+            target: &target,
+        },
+    )
+}
+
+pub fn compact_certificate(
+    certificate: &Certificate,
+    export_env: &ExportEnv,
+    target: &Formula,
+) -> Result<(Certificate, CompactCertificateStats), CertValidationError> {
+    compact_certificate_with_options(
+        certificate,
+        export_env,
+        ValidationOptions {
+            theorem_hypotheses: None,
+            target,
+        },
+    )
+}
+
 pub fn validate_certificate_for_theorem(
     certificate: &Certificate,
     mm0_env: &Mm0Env,
@@ -340,6 +394,69 @@ pub fn validate_certificate_with_options(
     export_env: &ExportEnv,
     options: ValidationOptions<'_>,
 ) -> Result<(), CertValidationError> {
+    let final_formula = infer_certificate_formulas(certificate, export_env, options.clone())?.1;
+    if final_formula.as_ref() == Some(options.target) {
+        Ok(())
+    } else {
+        Err(CertValidationError::FinalGoalMismatch)
+    }
+}
+
+fn compact_certificate_with_options(
+    certificate: &Certificate,
+    export_env: &ExportEnv,
+    options: ValidationOptions<'_>,
+) -> Result<(Certificate, CompactCertificateStats), CertValidationError> {
+    validate_certificate_with_options(certificate, export_env, options.clone())?;
+
+    let context = ValidationContext::new(export_env);
+    let mut formulas = BTreeMap::<Label, Formula>::new();
+    let mut first_by_formula = BTreeMap::<Formula, Label>::new();
+    let mut aliases = BTreeMap::<Label, Label>::new();
+    let mut steps = Vec::new();
+
+    for (idx, step) in certificate.steps.iter().enumerate() {
+        let step_no = idx + 1;
+        let is_final = idx + 1 == certificate.steps.len();
+        let original_label = step.label().clone();
+        let step = remap_step_refs_only(step, &aliases);
+        let formula = infer_step_formula(
+            &step,
+            &formulas,
+            &context,
+            options.theorem_hypotheses,
+            step_no,
+        )?;
+
+        if !is_final && let Some(first_label) = first_by_formula.get(&formula) {
+            aliases.insert(original_label, first_label.clone());
+            continue;
+        }
+
+        first_by_formula
+            .entry(formula.clone())
+            .or_insert_with(|| original_label.clone());
+        formulas.insert(original_label, formula);
+        steps.push(step);
+    }
+
+    let compact = Certificate::new(steps);
+    validate_certificate_with_options(&compact, export_env, options)?;
+    let after_steps = compact.steps.len();
+    Ok((
+        compact,
+        CompactCertificateStats {
+            before_steps: certificate.steps.len(),
+            after_steps,
+        },
+    ))
+}
+
+fn infer_certificate_formulas(
+    certificate: &Certificate,
+    export_env: &ExportEnv,
+    options: ValidationOptions<'_>,
+) -> Result<(BTreeMap<Label, Formula>, Option<Formula>), CertValidationError> {
     if certificate.format_version != CERT_FORMAT_VERSION {
         return Err(CertValidationError::UnsupportedVersion {
             found: certificate.format_version,
@@ -378,11 +495,7 @@ pub fn validate_certificate_with_options(
         last_formula = Some(formula);
     }
 
-    if last_formula.as_ref() == Some(options.target) {
-        Ok(())
-    } else {
-        Err(CertValidationError::FinalGoalMismatch)
-    }
+    Ok((formulas, last_formula))
 }
 
 struct ValidationContext<'a> {
@@ -606,17 +719,6 @@ fn infer_congruence_formula(
     ensure_relation(context, child_relation, step_no)?;
 
     let Term::App {
-        head: left_head,
-        args: left_args,
-    } = base_lhs
-    else {
-        return Err(CertValidationError::CongruenceHeadMismatch {
-            expected: input.head.to_owned(),
-            found: base_lhs.head().unwrap_or("<literal>").to_owned(),
-            step: step_no,
-        });
-    };
-    let Term::App {
         head: right_head,
         args: right_args,
     } = base_rhs
@@ -627,19 +729,14 @@ fn infer_congruence_formula(
             step: step_no,
         });
     };
-    if left_head != input.head || right_head != input.head {
-        let found = if left_head != input.head {
-            left_head
-        } else {
-            right_head
-        };
+    if right_head != input.head {
         return Err(CertValidationError::CongruenceHeadMismatch {
             expected: input.head.to_owned(),
-            found: found.clone(),
+            found: right_head.clone(),
             step: step_no,
         });
     }
-    if input.child_index >= right_args.len() || input.child_index >= left_args.len() {
+    if input.child_index >= right_args.len() {
         return Err(CertValidationError::BadCongruenceChild {
             child_index: input.child_index,
             step: step_no,
@@ -653,10 +750,7 @@ fn infer_congruence_formula(
     rhs_args[input.child_index] = child_rhs.clone();
     Ok(Formula::Rel {
         rel: input.relation.to_owned(),
-        lhs: Term::App {
-            head: left_head.clone(),
-            args: left_args.clone(),
-        },
+        lhs: base_lhs.clone(),
         rhs: Term::App {
             head: right_head.clone(),
             args: rhs_args,
@@ -948,6 +1042,8 @@ pub fn translate_equality_proof(
         input,
         indexes,
         labels: HashMap::new(),
+        label_by_refl: BTreeMap::new(),
+        label_by_hyp: BTreeMap::new(),
         steps: Vec::new(),
         next_label: 1,
     };
@@ -982,6 +1078,8 @@ struct TranslateCtx<'a> {
     input: EqualityTranslationInput<'a>,
     indexes: TranslateIndexes,
     labels: HashMap<egglog::proof::ProofId, Label>,
+    label_by_refl: BTreeMap<(String, Term), Label>,
+    label_by_hyp: BTreeMap<(usize, Formula, bool), Label>,
     steps: Vec<CertStep>,
     next_label: usize,
 }
@@ -1108,26 +1206,7 @@ impl<'a> TranslateCtx<'a> {
             .find(|hypothesis| hypothesis.proposition == proposition)
             .cloned()
         {
-            let hyp_label = self.fresh_label("hyp");
-            let hyp_formula = hypothesis.formula.clone();
-            self.steps.push(CertStep::Hyp {
-                label: hyp_label.clone(),
-                hyp_index: hypothesis.hyp_index,
-                formula: hyp_formula.clone(),
-            });
-            if hypothesis.needs_symmetry {
-                let Formula::Rel { rel, .. } = hyp_formula else {
-                    return Err(TranslateError::MissingFormula { label: hyp_label });
-                };
-                let sym_label = self.fresh_label("eq_sym");
-                self.steps.push(CertStep::EqSym {
-                    label: sym_label.clone(),
-                    relation: rel,
-                    source: hyp_label,
-                });
-                return Ok(sym_label);
-            }
-            return Ok(hyp_label);
+            return self.emit_hypothesis(hypothesis);
         }
 
         let lhs = proof.proposition().lhs();
@@ -1141,13 +1220,7 @@ impl<'a> TranslateCtx<'a> {
                 .ok_or_else(|| TranslateError::CannotInferRelation {
                     proposition: term_debug(&term),
                 })?;
-        let label = self.fresh_label("eq_refl");
-        self.steps.push(CertStep::EqRefl {
-            label: label.clone(),
-            relation,
-            term,
-        });
-        Ok(label)
+        self.emit_reflexivity(relation, term)
     }
 
     fn translate_rule(
@@ -1245,13 +1318,7 @@ impl<'a> TranslateCtx<'a> {
         let Some(relation) = self.relation_for_term(&lhs) else {
             return Ok(None);
         };
-        let label = self.fresh_label("eq_refl");
-        self.steps.push(CertStep::EqRefl {
-            label: label.clone(),
-            relation,
-            term: lhs,
-        });
-        Ok(Some(label))
+        self.emit_reflexivity(relation, lhs).map(Some)
     }
 
     fn emit_rule_source_to_target(
@@ -1437,6 +1504,62 @@ impl<'a> TranslateCtx<'a> {
         }
     }
 
+    fn emit_hypothesis(&mut self, hypothesis: HypothesisFiat) -> Result<Label, TranslateError> {
+        let key = (
+            hypothesis.hyp_index,
+            hypothesis.formula.clone(),
+            hypothesis.needs_symmetry,
+        );
+        if let Some(label) = self.label_by_hyp.get(&key) {
+            return Ok(label.clone());
+        }
+
+        let direct_key = (hypothesis.hyp_index, hypothesis.formula.clone(), false);
+        let hyp_label = if let Some(label) = self.label_by_hyp.get(&direct_key) {
+            label.clone()
+        } else {
+            let label = self.fresh_label("hyp");
+            self.steps.push(CertStep::Hyp {
+                label: label.clone(),
+                hyp_index: hypothesis.hyp_index,
+                formula: hypothesis.formula.clone(),
+            });
+            self.label_by_hyp.insert(direct_key, label.clone());
+            label
+        };
+
+        if hypothesis.needs_symmetry {
+            let Formula::Rel { rel, .. } = hypothesis.formula else {
+                return Err(TranslateError::MissingFormula { label: hyp_label });
+            };
+            let sym_label = self.fresh_label("eq_sym");
+            self.steps.push(CertStep::EqSym {
+                label: sym_label.clone(),
+                relation: rel,
+                source: hyp_label,
+            });
+            self.label_by_hyp.insert(key, sym_label.clone());
+            Ok(sym_label)
+        } else {
+            Ok(hyp_label)
+        }
+    }
+
+    fn emit_reflexivity(&mut self, relation: String, term: Term) -> Result<Label, TranslateError> {
+        let key = (relation.clone(), term.clone());
+        if let Some(label) = self.label_by_refl.get(&key) {
+            return Ok(label.clone());
+        }
+        let label = self.fresh_label("eq_refl");
+        self.steps.push(CertStep::EqRefl {
+            label: label.clone(),
+            relation,
+            term,
+        });
+        self.label_by_refl.insert(key, label.clone());
+        Ok(label)
+    }
+
     fn fresh_label(&mut self, prefix: &str) -> Label {
         let label = Label::new(format!("{prefix}_{}", self.next_label));
         self.next_label += 1;
@@ -1465,6 +1588,9 @@ pub fn translate_fact_proof(
         indexes,
         labels: HashMap::new(),
         formulas: BTreeMap::new(),
+        label_by_refl: BTreeMap::new(),
+        label_by_hyp: BTreeMap::new(),
+        label_by_transport: BTreeMap::new(),
         steps: Vec::new(),
         next_label: 1,
     };
@@ -1483,6 +1609,9 @@ struct FactTranslateCtx<'a> {
     indexes: TranslateIndexes,
     labels: HashMap<egglog::proof::ProofId, Label>,
     formulas: BTreeMap<Label, Formula>,
+    label_by_refl: BTreeMap<(String, Term), Label>,
+    label_by_hyp: BTreeMap<(usize, Formula, bool), Label>,
+    label_by_transport: BTreeMap<(String, Label, Label, String), Label>,
     steps: Vec<CertStep>,
     next_label: usize,
 }
@@ -1593,33 +1722,7 @@ impl<'a> FactTranslateCtx<'a> {
             .find(|hypothesis| hypothesis.proposition == proposition)
             .cloned()
         {
-            let hyp_label = self.fresh_label("hyp");
-            self.push_step(
-                hyp_label.clone(),
-                hypothesis.formula.clone(),
-                CertStep::Hyp {
-                    label: hyp_label.clone(),
-                    hyp_index: hypothesis.hyp_index,
-                    formula: hypothesis.formula.clone(),
-                },
-            );
-            if hypothesis.needs_symmetry {
-                let Formula::Rel { rel, lhs, rhs } = hypothesis.formula else {
-                    return Err(TranslateError::MissingFormula { label: hyp_label });
-                };
-                let sym_label = self.fresh_label("eq_sym");
-                self.push_step(
-                    sym_label.clone(),
-                    Formula::rel(rel.clone(), rhs, lhs),
-                    CertStep::EqSym {
-                        label: sym_label.clone(),
-                        relation: rel,
-                        source: hyp_label,
-                    },
-                );
-                return Ok(sym_label);
-            }
-            return Ok(hyp_label);
+            return self.emit_hypothesis(hypothesis);
         }
 
         let lhs = proof.proposition().lhs();
@@ -1634,18 +1737,7 @@ impl<'a> FactTranslateCtx<'a> {
         let relation = self
             .relation_for_term(&term)
             .ok_or(TranslateError::CannotInferRelation { proposition })?;
-        let label = self.fresh_label("eq_refl");
-        let formula = Formula::rel(relation.clone(), term.clone(), term.clone());
-        self.push_step(
-            label.clone(),
-            formula,
-            CertStep::EqRefl {
-                label: label.clone(),
-                relation,
-                term,
-            },
-        );
-        Ok(label)
+        self.emit_reflexivity(relation, term)
     }
 
     fn translate_rule(
@@ -2068,6 +2160,15 @@ impl<'a> FactTranslateCtx<'a> {
             },
         );
 
+        let key = (
+            congruence.relation.clone(),
+            congr_label.clone(),
+            base_label.clone(),
+            transport.clone(),
+        );
+        if let Some(label) = self.label_by_transport.get(&key) {
+            return Ok(label.clone());
+        }
         let label = self.fresh_label("transport");
         let transported = Formula::atom(pred, new_args);
         self.push_step(
@@ -2081,6 +2182,7 @@ impl<'a> FactTranslateCtx<'a> {
                 mm0_transport_rule: transport,
             },
         );
+        self.label_by_transport.insert(key, label.clone());
         Ok(label)
     }
 
@@ -2117,17 +2219,7 @@ impl<'a> FactTranslateCtx<'a> {
                         proposition: term_debug(old_arg),
                     }
                 })?;
-                let label = self.fresh_label("eq_refl");
-                let formula = Formula::rel(relation.clone(), old_arg.clone(), old_arg.clone());
-                self.push_step(
-                    label.clone(),
-                    formula,
-                    CertStep::EqRefl {
-                        label: label.clone(),
-                        relation,
-                        term: old_arg.clone(),
-                    },
-                );
+                let label = self.emit_reflexivity(relation, old_arg.clone())?;
                 refs.push(Ref::label(label));
             } else {
                 return Err(TranslateError::MissingEqualityProof {
@@ -2382,6 +2474,75 @@ impl<'a> FactTranslateCtx<'a> {
             })
     }
 
+    fn emit_hypothesis(&mut self, hypothesis: HypothesisFiat) -> Result<Label, TranslateError> {
+        let key = (
+            hypothesis.hyp_index,
+            hypothesis.formula.clone(),
+            hypothesis.needs_symmetry,
+        );
+        if let Some(label) = self.label_by_hyp.get(&key) {
+            return Ok(label.clone());
+        }
+
+        let direct_key = (hypothesis.hyp_index, hypothesis.formula.clone(), false);
+        let hyp_label = if let Some(label) = self.label_by_hyp.get(&direct_key) {
+            label.clone()
+        } else {
+            let label = self.fresh_label("hyp");
+            self.push_step(
+                label.clone(),
+                hypothesis.formula.clone(),
+                CertStep::Hyp {
+                    label: label.clone(),
+                    hyp_index: hypothesis.hyp_index,
+                    formula: hypothesis.formula.clone(),
+                },
+            );
+            self.label_by_hyp.insert(direct_key, label.clone());
+            label
+        };
+
+        if hypothesis.needs_symmetry {
+            let Formula::Rel { rel, lhs, rhs } = hypothesis.formula else {
+                return Err(TranslateError::MissingFormula { label: hyp_label });
+            };
+            let sym_label = self.fresh_label("eq_sym");
+            self.push_step(
+                sym_label.clone(),
+                Formula::rel(rel.clone(), rhs, lhs),
+                CertStep::EqSym {
+                    label: sym_label.clone(),
+                    relation: rel,
+                    source: hyp_label,
+                },
+            );
+            self.label_by_hyp.insert(key, sym_label.clone());
+            Ok(sym_label)
+        } else {
+            Ok(hyp_label)
+        }
+    }
+
+    fn emit_reflexivity(&mut self, relation: String, term: Term) -> Result<Label, TranslateError> {
+        let key = (relation.clone(), term.clone());
+        if let Some(label) = self.label_by_refl.get(&key) {
+            return Ok(label.clone());
+        }
+        let label = self.fresh_label("eq_refl");
+        let formula = Formula::rel(relation.clone(), term.clone(), term.clone());
+        self.push_step(
+            label.clone(),
+            formula,
+            CertStep::EqRefl {
+                label: label.clone(),
+                relation,
+                term,
+            },
+        );
+        self.label_by_refl.insert(key, label.clone());
+        Ok(label)
+    }
+
     fn push_step(&mut self, label: Label, formula: Formula, step: CertStep) {
         self.formulas.insert(label, formula);
         self.steps.push(step);
@@ -2488,6 +2649,113 @@ impl<'a> EggPatternParser<'a> {
 
     fn peek(&self) -> Option<char> {
         self.chars.get(self.pos).copied()
+    }
+}
+
+fn remap_step_refs_only(step: &CertStep, aliases: &BTreeMap<Label, Label>) -> CertStep {
+    match step {
+        CertStep::Hyp {
+            label,
+            hyp_index,
+            formula,
+        } => CertStep::Hyp {
+            label: label.clone(),
+            hyp_index: *hyp_index,
+            formula: formula.clone(),
+        },
+        CertStep::RuleApply {
+            label,
+            formula,
+            mm0_rule,
+            bindings,
+            refs,
+        } => CertStep::RuleApply {
+            label: label.clone(),
+            formula: formula.clone(),
+            mm0_rule: mm0_rule.clone(),
+            bindings: bindings.clone(),
+            refs: refs
+                .iter()
+                .map(|proof_ref| remap_ref_alias(proof_ref, aliases))
+                .collect(),
+        },
+        CertStep::EqRefl {
+            label,
+            relation,
+            term,
+        } => CertStep::EqRefl {
+            label: label.clone(),
+            relation: relation.clone(),
+            term: term.clone(),
+        },
+        CertStep::EqSym {
+            label,
+            relation,
+            source,
+        } => CertStep::EqSym {
+            label: label.clone(),
+            relation: relation.clone(),
+            source: aliases
+                .get(source)
+                .cloned()
+                .unwrap_or_else(|| source.clone()),
+        },
+        CertStep::EqTrans {
+            label,
+            relation,
+            left,
+            right,
+        } => CertStep::EqTrans {
+            label: label.clone(),
+            relation: relation.clone(),
+            left: aliases.get(left).cloned().unwrap_or_else(|| left.clone()),
+            right: aliases.get(right).cloned().unwrap_or_else(|| right.clone()),
+        },
+        CertStep::EqCongr {
+            label,
+            relation,
+            head,
+            child_index,
+            base,
+            child_eq,
+            mm0_congr_rule,
+        } => CertStep::EqCongr {
+            label: label.clone(),
+            relation: relation.clone(),
+            head: head.clone(),
+            child_index: *child_index,
+            base: aliases.get(base).cloned().unwrap_or_else(|| base.clone()),
+            child_eq: aliases
+                .get(child_eq)
+                .cloned()
+                .unwrap_or_else(|| child_eq.clone()),
+            mm0_congr_rule: mm0_congr_rule.clone(),
+        },
+        CertStep::Transport {
+            label,
+            relation,
+            equivalence,
+            proof,
+            mm0_transport_rule,
+        } => CertStep::Transport {
+            label: label.clone(),
+            relation: relation.clone(),
+            equivalence: aliases
+                .get(equivalence)
+                .cloned()
+                .unwrap_or_else(|| equivalence.clone()),
+            proof: aliases.get(proof).cloned().unwrap_or_else(|| proof.clone()),
+            mm0_transport_rule: mm0_transport_rule.clone(),
+        },
+    }
+}
+
+fn remap_ref_alias(proof_ref: &Ref, aliases: &BTreeMap<Label, Label>) -> Ref {
+    match proof_ref {
+        Ref::Label { label } => {
+            Ref::label(aliases.get(label).cloned().unwrap_or_else(|| label.clone()))
+        }
+        Ref::Hyp { hyp_index } => Ref::hyp(*hyp_index),
     }
 }
 
@@ -3067,6 +3335,9 @@ axiom p_congr (x y: s): $ eq x y $ > $ bi (p x) (p y) $;
             indexes,
             labels: std::collections::HashMap::new(),
             formulas: std::collections::BTreeMap::new(),
+            label_by_refl: std::collections::BTreeMap::new(),
+            label_by_hyp: std::collections::BTreeMap::new(),
+            label_by_transport: std::collections::BTreeMap::new(),
             steps: Vec::new(),
             next_label: 1,
         };

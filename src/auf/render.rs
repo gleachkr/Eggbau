@@ -17,21 +17,40 @@ pub enum AufRenderExplicitness {
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub enum AufRenderCompaction {
+    #[default]
+    NoCompact,
+    Compact,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct AufRenderFormat {
     pub explicitness: AufRenderExplicitness,
+    pub compaction: AufRenderCompaction,
 }
 
 impl AufRenderFormat {
     pub fn explicit() -> Self {
         Self {
             explicitness: AufRenderExplicitness::Explicit,
+            compaction: AufRenderCompaction::NoCompact,
         }
     }
 
     pub fn implicit() -> Self {
         Self {
             explicitness: AufRenderExplicitness::Implicit,
+            compaction: AufRenderCompaction::NoCompact,
         }
+    }
+
+    pub fn with_compaction(mut self, compaction: AufRenderCompaction) -> Self {
+        self.compaction = compaction;
+        self
+    }
+
+    pub fn compact_enabled(self) -> bool {
+        self.compaction == AufRenderCompaction::Compact
     }
 }
 
@@ -119,6 +138,7 @@ struct RenderState {
     formulas: BTreeMap<Label, Formula>,
     refs: BTreeMap<Label, RenderRef>,
     emitted_labels: BTreeSet<String>,
+    label_by_refl: BTreeMap<(String, Term), Label>,
     last_emitted: Option<Label>,
 }
 
@@ -512,12 +532,15 @@ fn congruence_application_refs(
                     label: input.label.clone(),
                     reason: "cannot infer unchanged congruence argument relation".to_owned(),
                 })?;
-            let label = fresh_aux_label(input.label.as_str(), &format!("refl_{idx}"), state);
             let formula = Formula::rel(relation.clone(), old_arg.clone(), old_arg.clone());
-            let bundle = relation_bundle(export_env, &relation)?;
-            emit_line(
-                EmitLineInput::no_refs(&label, &formula, &bundle.reflexivity),
+            let label = render_reflexivity_helper(
+                input.label.as_str(),
+                idx,
+                &relation,
+                old_arg,
+                &formula,
                 mm0_env,
+                export_env,
                 state,
                 out,
             )?;
@@ -535,6 +558,34 @@ fn congruence_application_refs(
         }
     }
     Ok((refs, formulas))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_reflexivity_helper(
+    base_label: &str,
+    child_index: usize,
+    relation: &str,
+    term: &Term,
+    formula: &Formula,
+    mm0_env: &Mm0Env,
+    export_env: &ExportEnv,
+    state: &mut RenderState,
+    out: &mut String,
+) -> Result<Label, AufRenderError> {
+    let key = (relation.to_owned(), term.clone());
+    if let Some(label) = state.label_by_refl.get(&key) {
+        return Ok(label.clone());
+    }
+    let label = fresh_aux_label(base_label, &format!("refl_{child_index}"), state);
+    let bundle = relation_bundle(export_env, relation)?;
+    emit_line(
+        EmitLineInput::no_refs(&label, formula, &bundle.reflexivity),
+        mm0_env,
+        state,
+        out,
+    )?;
+    state.label_by_refl.insert(key, label.clone());
+    Ok(label)
 }
 
 fn congruent_application_args<'a>(

@@ -5,8 +5,9 @@ use std::{
 };
 
 use crate::{
-    EggbauError, OutputMode, ProofTarget, auf::AufRenderFormat, discover, export, mm0,
-    version_report,
+    EggbauError, OutputMode, ProofTarget,
+    auf::{AufRenderCompaction, AufRenderExplicitness, AufRenderFormat},
+    discover, export, mm0, version_report,
 };
 
 /// Run the eggbau command line using the provided argument iterator.
@@ -23,6 +24,7 @@ where
         Some("--version") | Some("-V") | Some("version") => Ok(version_report()),
         Some("discover") => run_discover(args),
         Some("list") => run_list(args),
+        Some("lint") => run_lint(args),
         Some("prove") => run_prove(args),
         Some("script") => run_script(args),
         Some(other) => Err(EggbauError::UnsupportedCommand(other.to_owned())),
@@ -66,6 +68,30 @@ fn run_list(mut args: impl Iterator<Item = String>) -> Result<String, EggbauErro
 
 fn is_listable_public_theorem(theorem: &mm0::TheoremDecl) -> bool {
     theorem.kind == mm0::AssertionKind::Theorem && theorem.unsupported_reason.is_none()
+}
+
+fn run_lint(mut args: impl Iterator<Item = String>) -> Result<String, EggbauError> {
+    let file = args.next().ok_or_else(|| {
+        EggbauError::UnsupportedCommand("lint requires an MM0 input path".to_owned())
+    })?;
+    reject_extra_args(args)?;
+
+    let input = read_mm0(&file)?;
+    let env = mm0::parse_env(&input)?;
+    let report = discover::DiscoveryReport::from_env(&env);
+    if !report.metadata_errors.is_empty() {
+        let mut out = String::new();
+        out.push_str("metadata lint failed\n");
+        for error in report.metadata_errors {
+            out.push_str(&format!(
+                "{} ({}): {}\n",
+                error.theorem, error.metadata_kind, error.message
+            ));
+        }
+        return Err(EggbauError::UnsupportedCommand(out));
+    }
+    export::ExportEnv::from_mm0(&env)?;
+    Ok("metadata lint ok\n".to_owned())
 }
 
 fn run_prove(args: impl Iterator<Item = String>) -> Result<String, EggbauError> {
@@ -202,6 +228,17 @@ fn run_script_prove(args: impl Iterator<Item = String>) -> Result<String, Eggbau
     let certificate = proof.certificate.ok_or_else(|| {
         EggbauError::Egglog("script proof did not produce a certificate".to_owned())
     })?;
+    let certificate = if options.format.compact_enabled() {
+        crate::cert::compact_certificate_for_theorem(
+            &certificate,
+            &env,
+            &export_env,
+            &options.theorem,
+        )?
+        .0
+    } else {
+        certificate
+    };
     let rendered = crate::auf::render_certificate(
         &env,
         &export_env,
@@ -333,13 +370,14 @@ fn parse_script_prove_options(
                     ));
                 }
             }
-            "--format" => {
+            "--format" | "--proof-style" => {
                 let value = args.next().ok_or_else(|| {
                     EggbauError::UnsupportedCommand(
-                        "script prove --format requires explicit or implicit".to_owned(),
+                        "script prove --format requires explicit, implicit, compact, or nocompact"
+                            .to_owned(),
                     )
                 })?;
-                format = parse_auf_format(&value)?;
+                format = apply_auf_format_value(format, &value)?;
             }
             other => return Err(EggbauError::UnsupportedCommand(other.to_owned())),
         }
@@ -435,13 +473,13 @@ fn parse_prove_options(
                     ));
                 }
             }
-            "--format" => {
+            "--format" | "--proof-style" => {
                 let value = args.next().ok_or_else(|| {
                     EggbauError::UnsupportedCommand(
-                        "--format requires explicit or implicit".to_owned(),
+                        "--format requires explicit, implicit, compact, or nocompact".to_owned(),
                     )
                 })?;
-                format = parse_auf_format(&value)?;
+                format = apply_auf_format_value(format, &value)?;
             }
             "--base" => {
                 let value = args.next().ok_or_else(|| {
@@ -1012,14 +1050,24 @@ fn read_stdin_or_file(path: &str) -> Result<String, EggbauError> {
     })
 }
 
-fn parse_auf_format(value: &str) -> Result<AufRenderFormat, EggbauError> {
+fn apply_auf_format_value(
+    mut format: AufRenderFormat,
+    value: &str,
+) -> Result<AufRenderFormat, EggbauError> {
     match value {
-        "explicit" => Ok(AufRenderFormat::explicit()),
-        "implicit" => Ok(AufRenderFormat::implicit()),
-        other => Err(EggbauError::UnsupportedCommand(format!(
-            "unknown Aufbau output format: {other}"
-        ))),
+        "explicit" => format.explicitness = AufRenderExplicitness::Explicit,
+        "implicit" => format.explicitness = AufRenderExplicitness::Implicit,
+        "compact" => format.compaction = AufRenderCompaction::Compact,
+        "nocompact" | "no-compact" => {
+            format.compaction = AufRenderCompaction::NoCompact;
+        }
+        other => {
+            return Err(EggbauError::UnsupportedCommand(format!(
+                "unknown Aufbau output format: {other}"
+            )));
+        }
     }
+    Ok(format)
 }
 
 fn reject_extra_args(mut args: impl Iterator<Item = String>) -> Result<(), EggbauError> {
@@ -1056,6 +1104,7 @@ pub fn help_text() -> String {
         "  eggbau --version",
         "  eggbau discover INPUT.mm0 [--suggest-annotations]",
         "  eggbau list INPUT.mm0",
+        "  eggbau lint INPUT.mm0",
         "  eggbau prove INPUT.mm0 [OPTIONS]",
         "  eggbau script emit INPUT.mm0 [OPTIONS]",
         "  eggbau script prove INPUT.mm0 [OPTIONS]",
@@ -1069,7 +1118,7 @@ pub fn help_text() -> String {
         "PROVE OUTPUT:",
         "  -o, --out FILE           Write generated .auf to FILE",
         "      --base FILE          Splice generated proofs into an existing .auf",
-        "      --format FORMAT      Output style: explicit or implicit",
+        "      --format FORMAT      explicit, implicit, compact, nocompact",
         "",
         "If --out is omitted, generated .auf is written to stdout.",
         "Diagnostics and stream-order warnings are written to stderr.",

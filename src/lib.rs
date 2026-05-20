@@ -180,6 +180,8 @@ pub(crate) fn prove_theorem_with_auf_format(
         .certificate
         .clone()
         .unwrap_or_else(cert::Certificate::empty);
+    let (certificate, compact_diagnostics) =
+        maybe_compact_certificate(&certificate, &env, &export_env, &theorem, auf_format)?;
     let auf = auf::render_certificate(
         &env,
         &export_env,
@@ -203,7 +205,7 @@ pub(crate) fn prove_theorem_with_auf_format(
         auf: auf.text,
         egglog_program: proof.egglog_program,
         certificate_json,
-        diagnostics: proof.diagnostics,
+        diagnostics: extend_diagnostics(proof.diagnostics, compact_diagnostics),
     })
 }
 
@@ -233,6 +235,8 @@ pub(crate) fn prove_theorems_with_auf_format(
             .certificate
             .clone()
             .unwrap_or_else(cert::Certificate::empty);
+        let (certificate, compact_diagnostics) =
+            maybe_compact_certificate(&certificate, &env, &export_env, theorem, auf_format)?;
         let rendered = auf::render_certificate(
             &env,
             &export_env,
@@ -251,6 +255,7 @@ pub(crate) fn prove_theorems_with_auf_format(
         certificates.push(certificate_json_value(certificate, &proof));
         egglog_programs.push(proof.egglog_program);
         diagnostics.extend(proof.diagnostics);
+        diagnostics.extend(compact_diagnostics);
     }
 
     Ok(ProveResult {
@@ -308,6 +313,13 @@ pub(crate) fn prove_targets_with_auf_format(
             .certificate
             .clone()
             .unwrap_or_else(cert::Certificate::empty);
+        let (certificate, compact_diagnostics) = maybe_compact_certificate(
+            &certificate,
+            theorem_env,
+            &export_env,
+            target.name(),
+            auf_format,
+        )?;
         let options = auf::AufRenderOptions {
             output_mode: output_mode.clone(),
             format: auf_format,
@@ -336,6 +348,7 @@ pub(crate) fn prove_targets_with_auf_format(
         certificates.push(certificate_json_value(certificate, &proof));
         egglog_programs.push(proof.egglog_program);
         diagnostics.extend(proof.diagnostics);
+        diagnostics.extend(compact_diagnostics);
     }
 
     Ok(ProveResult {
@@ -460,6 +473,45 @@ fn append_rendered_block(out: &mut String, block: &str) {
         out.push('\n');
     }
     out.push_str(block);
+}
+
+fn maybe_compact_certificate(
+    certificate: &cert::Certificate,
+    env: &mm0::Mm0Env,
+    export_env: &export::ExportEnv,
+    theorem: &str,
+    format: auf::AufRenderFormat,
+) -> Result<(cert::Certificate, Vec<Diagnostic>), EggbauError> {
+    if !format.compact_enabled() {
+        return Ok((certificate.clone(), Vec::new()));
+    }
+    let (certificate, stats) =
+        cert::compact_certificate_for_theorem(certificate, env, export_env, theorem)?;
+    let diagnostics = vec![
+        Diagnostic {
+            severity: DiagnosticSeverity::Info,
+            message: format!(
+                "compact mode requested for theorem {theorem}: certificate steps before \
+                 compaction: {}",
+                stats.before_steps
+            ),
+        },
+        Diagnostic {
+            severity: DiagnosticSeverity::Info,
+            message: format!(
+                "compact mode requested for theorem {theorem}: certificate steps after \
+                 compaction: {} (removed {})",
+                stats.after_steps,
+                stats.removed_steps()
+            ),
+        },
+    ];
+    Ok((certificate, diagnostics))
+}
+
+fn extend_diagnostics(mut diagnostics: Vec<Diagnostic>, extra: Vec<Diagnostic>) -> Vec<Diagnostic> {
+    diagnostics.extend(extra);
+    diagnostics
 }
 
 fn certificate_json_value(
