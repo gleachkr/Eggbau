@@ -3,7 +3,7 @@ name = "eggbau"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
-rust-version = "1.88"
+rust-version = "1.94"
 description = "Untrusted proof-search tooling that emits Aufbau scripts for MM0."
 
 [dependencies]

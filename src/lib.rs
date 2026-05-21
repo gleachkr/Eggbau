@@ -597,20 +597,16 @@ fn stream_order_diagnostics(env: &mm0::Mm0Env, ordered_theorems: &[String]) -> V
 
 /// Produce the long-form version report required by the CLI smoke tests.
 pub fn version_report() -> String {
-    let mut report = String::new();
-    report.push_str(&format!("eggbau {}\n", env!("CARGO_PKG_VERSION")));
-    report.push_str(&format!("egglog {} (vendored patch)\n", PINNED_EGGLOG));
-    report.push_str(&format!(
-        "supported proof justifications: {}\n",
-        SUPPORTED_PROOF_JUSTIFICATIONS.join(", ")
-    ));
-    report.push_str(&format!(
-        "rejected proof justifications: {}\n",
-        REJECTED_PROOF_JUSTIFICATIONS.join(", ")
-    ));
-    report.push_str(&format!(
-        "supported metadata forms: {}\n",
-        SUPPORTED_METADATA_FORMS.join(", ")
-    ));
-    report
+    let supported_justifications = SUPPORTED_PROOF_JUSTIFICATIONS.join(", ");
+    let rejected_justifications = REJECTED_PROOF_JUSTIFICATIONS.join(", ");
+    let supported_metadata = SUPPORTED_METADATA_FORMS.join(", ");
+
+    format!(
+        "eggbau {}\n\
+         egglog {PINNED_EGGLOG} (vendored patch)\n\
+         supported proof justifications: {supported_justifications}\n\
+         rejected proof justifications: {rejected_justifications}\n\
+         supported metadata forms: {supported_metadata}\n",
+        env!("CARGO_PKG_VERSION")
+    )
 }
