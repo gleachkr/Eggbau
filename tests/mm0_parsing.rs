@@ -1,7 +1,7 @@
 mod common;
 
 use eggbau::export::ExportEnv;
-use eggbau::mm0::{MathExpr, NotationKind, SaturationMode, parse_env};
+use eggbau::mm0::{BinderKind, MathExpr, NotationKind, SaturationMode, parse_env};
 
 const MM0_PARSING_INPUT: &str = include_str!("fixtures/mm0_parsing/input.mm0");
 
@@ -95,7 +95,7 @@ theorem t: $ s $;
 }
 
 #[test]
-fn annotated_dependency_heavy_theorems_parse_but_remain_unsupported() {
+fn annotated_dependency_heavy_theorems_parse_as_safe_binder_fragment() {
     let env = parse_env(
         r#"
 sort nat;
@@ -107,14 +107,12 @@ theorem dep {x: nat} (q: wff x): $ p x $;
     )
     .unwrap();
 
+    let theorem = env.theorem("dep").unwrap();
+
     assert_eq!(env.metadata.saturations[0].theorem, "dep");
-    assert!(
-        env.theorem("dep")
-            .unwrap()
-            .unsupported_reason
-            .as_deref()
-            .is_some_and(|reason| reason.contains("bound binders"))
-    );
+    assert!(theorem.unsupported_reason.is_none());
+    assert_eq!(theorem.binders[0].kind, BinderKind::Bound);
+    assert_eq!(theorem.binders[1].deps, ["x"]);
 }
 
 #[test]
@@ -130,7 +128,7 @@ fn export_validation_ignores_unannotated_unsupported_theorems() {
         axiom eq_trans (x y z: nat):
           $ eq x y $ > $ eq y z $ > $ eq x z $;
         axiom eq_sym (x y: nat): $ eq x y $ > $ eq y x $;
-        theorem dep {x: nat} (q: wff x): $ p x $;
+        theorem dep {.x: nat} (q: wff x): $ p x $;
         --| @saturation ltr
         theorem safe (x: nat): $ eq x x $;
         "#,
@@ -156,7 +154,7 @@ fn export_validation_rejects_annotated_unsupported_theorems() {
         provable sort wff;
         term p (x: nat): wff;
         --| @saturation ltr
-        theorem dep {x: nat} (q: wff x): $ p x $;
+        theorem dep {.x: nat} (q: wff x): $ p x $;
         "#,
     )
     .unwrap();
@@ -164,7 +162,7 @@ fn export_validation_rejects_annotated_unsupported_theorems() {
     let err = ExportEnv::from_mm0(&env).unwrap_err();
 
     assert_eq!(err.theorem, "dep");
-    assert!(err.reason.contains("bound binders"));
+    assert!(err.reason.contains("hidden dummy"));
 }
 
 #[test]
@@ -250,8 +248,8 @@ fn parses_copied_third_party_stress_suite() {
     assert_eq!(totals.theorems, 1618);
     assert_eq!(totals.notations, 447);
     assert_eq!(totals.diagnostics, 3);
-    assert_eq!(totals.unsupported_terms, 94);
-    assert_eq!(totals.unsupported_theorems, 523);
+    assert_eq!(totals.unsupported_terms, 31);
+    assert_eq!(totals.unsupported_theorems, 204);
 }
 
 #[derive(Default)]
@@ -541,11 +539,9 @@ fn parses_mm0_peano_without_rejecting_unsupported_binders() {
     assert!(ax_mp.unsupported_reason.is_none());
 
     let al = env.terms.iter().find(|term| term.name == "al").unwrap();
-    assert!(
-        al.unsupported_reason
-            .as_deref()
-            .is_some_and(|reason| reason.contains("bound binders"))
-    );
+    assert!(al.unsupported_reason.is_none());
+    assert_eq!(al.binders[0].kind, BinderKind::Bound);
+    assert_eq!(al.binders[1].deps, ["x"]);
 
     let sb = env.terms.iter().find(|term| term.name == "sb").unwrap();
     assert!(

@@ -78,7 +78,7 @@ fn unsupported_local_lemma_syntax_is_rejected() {
         "prove",
         FIXTURE,
         "--lemma",
-        "bad {x: s}: $ eq x x $",
+        "bad {.x: s}: $ eq x x $",
     ])
     .unwrap_err();
 

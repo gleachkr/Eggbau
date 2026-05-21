@@ -192,10 +192,10 @@ fn discover_stress_runs_on_extracted_mm0_fixture_inventory() {
     }
 
     assert_eq!(paths.len(), 47);
-    assert_eq!(totals.conversions, 117);
-    assert_eq!(totals.horn_rules, 17);
-    assert_eq!(totals.congruences, 0);
-    assert_eq!(totals.metadata_errors, 47);
+    assert_eq!(totals.conversions, 214);
+    assert_eq!(totals.horn_rules, 27);
+    assert_eq!(totals.congruences, 1);
+    assert_eq!(totals.metadata_errors, 31);
 }
 
 #[derive(Default)]

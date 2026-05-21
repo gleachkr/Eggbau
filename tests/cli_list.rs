@@ -19,7 +19,7 @@ provable sort wff;
 term p (x: s): wff;
 axiom helper: $ p x $;
 theorem supported (x: s): $ p x $;
-theorem unsupported {x: s}: $ p x $;
+theorem unsupported {.x: s}: $ p x $;
 "#,
     );
 

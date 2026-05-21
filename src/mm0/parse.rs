@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 
 use super::env::{
-    AssertionKind, BinderDecl, CongruenceAnnotation, Formula, MathExpr, MetadataIndex,
+    AssertionKind, BinderDecl, BinderKind, CongruenceAnnotation, Formula, MathExpr, MetadataIndex,
     Mm0Diagnostic, Mm0Env, NotationAssociativity, NotationDecl, NotationItem, NotationKind,
     RelationAnnotation, SaturationAnnotation, SaturationMode, SortDecl, TermDecl, TheoremDecl,
 };
@@ -147,7 +147,7 @@ fn parse_term_decl(text: &str, line: usize) -> Result<TermDecl, Mm0ParseError> {
         .ok_or_else(|| Mm0ParseError::new(line, "term declaration is missing a top-level ':'"))?;
     let (head, ty) = after_keyword.split_at(colon);
     let ty = ty[1..].trim();
-    let (name, binders, unsupported_reason) = parse_decl_head(head, line)?;
+    let (name, binders, mut unsupported_reason) = parse_decl_head(head, line)?;
     let ty = ty.split_once('=').map_or(ty, |(left, _)| left).trim();
     let parts = ty
         .split('>')
@@ -162,6 +162,11 @@ fn parse_term_decl(text: &str, line: usize) -> Result<TermDecl, Mm0ParseError> {
             "term declaration is missing a result sort",
         ));
     };
+    if result_sort.split_whitespace().count() != 1 {
+        unsupported_reason.get_or_insert_with(|| {
+            "dependent return sorts are outside eggbau's supported subset".to_owned()
+        });
+    }
 
     Ok(TermDecl {
         name,
@@ -237,76 +242,120 @@ fn parse_decl_head(
 
     let rest = head[name_end..].trim();
     let mut unsupported_reason = None;
-    if rest.contains('{') || rest.contains('}') {
-        unsupported_reason = Some(
-            "bound binders and hidden dependencies are not in eggbau's \
-             supported MM0 subset"
-                .to_owned(),
-        );
-    }
-    if rest.contains('.') {
-        unsupported_reason = Some(
-            "hidden dummy dependencies are not in eggbau's supported MM0 \
-             subset"
-                .to_owned(),
-        );
-    }
 
-    let (binders, binder_unsupported_reason) = parse_visible_binders(rest, line)?;
+    let (binders, binder_unsupported_reason) = parse_binder_groups(rest, line)?;
     if unsupported_reason.is_none() {
         unsupported_reason = binder_unsupported_reason;
     }
     Ok((name.to_owned(), binders, unsupported_reason))
 }
 
-fn parse_visible_binders(
+fn parse_binder_groups(
     text: &str,
     line: usize,
 ) -> Result<(Vec<BinderDecl>, Option<String>), Mm0ParseError> {
     let mut binders = Vec::new();
     let mut unsupported_reason = None;
     let mut idx = 0;
-    while let Some(start_rel) = text[idx..].find('(') {
-        let start = idx + start_rel;
-        let end = text[start + 1..]
-            .find(')')
-            .map(|end_rel| start + 1 + end_rel)
-            .ok_or_else(|| Mm0ParseError::new(line, "unterminated binder group"))?;
-        let group = text[start + 1..end].trim();
-        let (names, sort) = group
-            .split_once(':')
-            .ok_or_else(|| Mm0ParseError::new(line, "binder group is missing ':'"))?;
-        let mut sort_parts = sort.split_whitespace();
-        let Some(sort) = sort_parts.next() else {
-            return Err(Mm0ParseError::new(line, "binder group is missing a sort"));
+    while idx < text.len() {
+        let Some((start, open)) = next_non_ws(text, idx) else {
+            break;
         };
-        if sort_parts.next().is_some() {
-            unsupported_reason.get_or_insert_with(|| {
-                "dependent binder sorts are outside the supported subset".to_owned()
-            });
-        }
-        ensure_simple_ident(sort, line)?;
-        for raw_name in names.split_whitespace() {
-            let name = if let Some(name) = raw_name.strip_prefix('.') {
-                unsupported_reason.get_or_insert_with(|| {
-                    "hidden dummy dependencies are not in eggbau's supported MM0 \
-                     subset"
-                        .to_owned()
-                });
-                name
-            } else {
-                raw_name
-            };
-            ensure_simple_ident(name, line)?;
-            binders.push(BinderDecl {
-                name: name.to_owned(),
-                sort: sort.to_owned(),
-            });
-        }
-        idx = end + 1;
+        let (kind, close) = match open {
+            '(' => (BinderKind::Regular, ')'),
+            '{' => (BinderKind::Bound, '}'),
+            _ => {
+                return Err(Mm0ParseError::new(
+                    line,
+                    format!("unexpected token in declaration head: {open}"),
+                ));
+            }
+        };
+        let end = text[start + open.len_utf8()..]
+            .find(close)
+            .map(|end_rel| start + open.len_utf8() + end_rel)
+            .ok_or_else(|| Mm0ParseError::new(line, "unterminated binder group"))?;
+        let group = text[start + open.len_utf8()..end].trim();
+        parse_binder_group(group, kind, line, &mut binders, &mut unsupported_reason)?;
+        idx = end + close.len_utf8();
     }
 
     Ok((binders, unsupported_reason))
+}
+
+fn next_non_ws(text: &str, idx: usize) -> Option<(usize, char)> {
+    text[idx..]
+        .char_indices()
+        .find(|(_, ch)| !ch.is_whitespace())
+        .map(|(rel, ch)| (idx + rel, ch))
+}
+
+fn parse_binder_group(
+    group: &str,
+    kind: BinderKind,
+    line: usize,
+    binders: &mut Vec<BinderDecl>,
+    unsupported_reason: &mut Option<String>,
+) -> Result<(), Mm0ParseError> {
+    let (names, sort) = group
+        .split_once(':')
+        .ok_or_else(|| Mm0ParseError::new(line, "binder group is missing ':'"))?;
+    let names = names.split_whitespace().collect::<Vec<_>>();
+    if names.is_empty() {
+        return Err(Mm0ParseError::new(line, "binder group has no names"));
+    }
+    let mut sort_parts = sort.split_whitespace();
+    let Some(sort) = sort_parts.next() else {
+        return Err(Mm0ParseError::new(line, "binder group is missing a sort"));
+    };
+    ensure_simple_ident(sort, line)?;
+    let deps = sort_parts
+        .map(|raw_dep| parse_dependency_name(raw_dep, line, unsupported_reason))
+        .collect::<Result<Vec<_>, _>>()?;
+    for raw_name in names {
+        let name = parse_binder_name(raw_name, line, unsupported_reason)?;
+        binders.push(BinderDecl {
+            name,
+            sort: sort.to_owned(),
+            kind,
+            deps: deps.clone(),
+        });
+    }
+    Ok(())
+}
+
+fn parse_binder_name(
+    raw_name: &str,
+    line: usize,
+    unsupported_reason: &mut Option<String>,
+) -> Result<String, Mm0ParseError> {
+    let name = if let Some(name) = raw_name.strip_prefix('.') {
+        unsupported_reason.get_or_insert_with(hidden_dummy_message);
+        name
+    } else {
+        raw_name
+    };
+    ensure_simple_ident(name, line)?;
+    Ok(name.to_owned())
+}
+
+fn parse_dependency_name(
+    raw_name: &str,
+    line: usize,
+    unsupported_reason: &mut Option<String>,
+) -> Result<String, Mm0ParseError> {
+    let name = if let Some(name) = raw_name.strip_prefix('.') {
+        unsupported_reason.get_or_insert_with(hidden_dummy_message);
+        name
+    } else {
+        raw_name
+    };
+    ensure_simple_ident(name, line)?;
+    Ok(name.to_owned())
+}
+
+fn hidden_dummy_message() -> String {
+    "hidden dummy dependencies are not in eggbau's supported MM0 subset".to_owned()
 }
 
 fn parse_formula_sequence(body: &str, context: &FormulaContext) -> Vec<Formula> {
@@ -1018,11 +1067,16 @@ fn general_notation_from_decl(
     if notation.items.is_empty() {
         return None;
     }
-    let args = term_args
-        .get(&term)
-        .filter(|args| !args.is_empty())
-        .cloned()
-        .unwrap_or_else(|| visible_names_from_notation_head(&notation.source));
+    let source_args = visible_names_from_notation_head(&notation.source);
+    let args = if source_args.is_empty() {
+        term_args
+            .get(&term)
+            .filter(|args| !args.is_empty())
+            .cloned()
+            .unwrap_or_default()
+    } else {
+        source_args
+    };
     let pattern = notation
         .items
         .iter()
@@ -1076,22 +1130,37 @@ fn visible_names_from_notation_head(source: &str) -> Vec<String> {
     let head = &head[..colon];
     let mut names = Vec::new();
     let mut idx = 0;
-    while let Some(start_rel) = head[idx..].find('(') {
-        let start = idx + start_rel;
-        let Some(end_rel) = head[start + 1..].find(')') else {
+    while idx < head.len() {
+        let Some((start, open)) = next_binder_group_start(head, idx) else {
             break;
         };
-        let end = start + 1 + end_rel;
-        if let Some((raw_names, _)) = head[start + 1..end].split_once(':') {
+        let close = match open {
+            '(' => ')',
+            '{' => '}',
+            _ => unreachable!("binder group start is a delimiter"),
+        };
+        let Some(end_rel) = head[start + open.len_utf8()..].find(close) else {
+            break;
+        };
+        let end = start + open.len_utf8() + end_rel;
+        if let Some((raw_names, _)) = head[start + open.len_utf8()..end].split_once(':') {
             names.extend(
                 raw_names
                     .split_whitespace()
-                    .map(|name| name.strip_prefix('.').unwrap_or(name).to_owned()),
+                    .filter(|name| !name.starts_with('.'))
+                    .map(ToOwned::to_owned),
             );
         }
-        idx = end + 1;
+        idx = end + close.len_utf8();
     }
     names
+}
+
+fn next_binder_group_start(text: &str, idx: usize) -> Option<(usize, char)> {
+    [('(', text[idx..].find('(')), ('{', text[idx..].find('{'))]
+        .into_iter()
+        .filter_map(|(open, found)| found.map(|rel| (idx + rel, open)))
+        .min_by_key(|(start, _)| *start)
 }
 
 #[derive(Clone, Debug)]
@@ -1511,7 +1580,7 @@ fn token_string(token: &MathToken) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::parse_env;
-    use crate::mm0::SaturationMode;
+    use crate::mm0::{BinderKind, SaturationMode};
 
     #[test]
     fn parses_metadata_fixture_shapes() {
@@ -1586,14 +1655,16 @@ sort s;
     }
 
     #[test]
-    fn marks_bound_binders_unsupported_without_panicking() {
+    fn parses_bound_binders_without_panicking() {
         let input = r#"
 sort s;
 term p (x: s): s;
 theorem t {x: s}: $ p x $;
 "#;
         let env = parse_env(input).unwrap();
+        let theorem = env.theorem("t").unwrap();
 
-        assert!(env.theorem("t").unwrap().unsupported_reason.is_some());
+        assert!(theorem.unsupported_reason.is_none());
+        assert_eq!(theorem.binders[0].kind, BinderKind::Bound);
     }
 }

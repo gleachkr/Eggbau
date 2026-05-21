@@ -1295,7 +1295,7 @@ impl<'a> TranslateCtx<'a> {
             let sym_label = self.fresh_label("eq_sym");
             self.steps.push(CertStep::EqSym {
                 label: sym_label.clone(),
-                relation: self.input.relation.to_owned(),
+                relation: relation.clone(),
                 source: rule_label,
             });
             Ok(sym_label)

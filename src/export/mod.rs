@@ -5,7 +5,9 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::discover::{MetadataKind, validate_metadata};
-use crate::mm0::{BinderDecl, Formula, MathExpr, Mm0Env, SaturationMode, TermDecl, TheoremDecl};
+use crate::mm0::{
+    BinderDecl, BinderKind, Formula, MathExpr, Mm0Env, SaturationMode, TermDecl, TheoremDecl,
+};
 
 /// Validated export environment for annotated MM0 assertions.
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -358,6 +360,19 @@ fn validate_theorem(
         });
     }
 
+    validate_binder_shape(&theorem.name, &theorem.binders).map_err(|reason| {
+        ExportValidationError {
+            theorem: theorem.name.clone(),
+            use_kind,
+            reason,
+        }
+    })?;
+    validate_recoverable_bound_binders(theorem).map_err(|reason| ExportValidationError {
+        theorem: theorem.name.clone(),
+        use_kind,
+        reason,
+    })?;
+
     for formula in theorem
         .hypotheses
         .iter()
@@ -389,6 +404,141 @@ fn validate_formula(
         });
     }
     Ok(())
+}
+
+fn validate_term_for_export(
+    term: &TermDecl,
+    theorem: &TheoremDecl,
+    use_kind: ExportUse,
+) -> Result<(), ExportValidationError> {
+    if let Some(reason) = &term.unsupported_reason {
+        return Err(ExportValidationError {
+            theorem: theorem.name.clone(),
+            use_kind,
+            reason: format!("term {} is unsupported: {reason}", term.name),
+        });
+    }
+    validate_binder_shape(&term.name, &term.binders).map_err(|reason| ExportValidationError {
+        theorem: theorem.name.clone(),
+        use_kind,
+        reason: format!("term {} is unsupported: {reason}", term.name),
+    })
+}
+
+fn validate_recoverable_bound_binders(theorem: &TheoremDecl) -> Result<(), String> {
+    for binder in theorem
+        .binders
+        .iter()
+        .filter(|binder| binder.kind == BinderKind::Bound)
+    {
+        let occurs = theorem
+            .hypotheses
+            .iter()
+            .chain(std::iter::once(&theorem.conclusion))
+            .any(|formula| {
+                formula
+                    .expr
+                    .as_ref()
+                    .is_some_and(|expr| expr_contains(expr, &binder.name))
+            });
+        if !occurs {
+            return Err(format!(
+                "bound binder {} in declaration {} does not occur in any formula \
+                 and cannot be recovered for Aufbau rendering",
+                binder.name, theorem.name
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn expr_contains(expr: &MathExpr, name: &str) -> bool {
+    match expr {
+        MathExpr::Atom { name: found } => found == name,
+        MathExpr::App { args, .. } => args.iter().any(|arg| expr_contains(arg, name)),
+    }
+}
+
+fn validate_binder_shape(decl: &str, binders: &[BinderDecl]) -> Result<(), String> {
+    let all_bound = binders
+        .iter()
+        .filter(|binder| binder.kind == BinderKind::Bound)
+        .map(|binder| binder.name.as_str())
+        .collect::<BTreeSet<_>>();
+    if let Some((binder, later)) = regular_before_later_bound(binders) {
+        return Err(format!(
+            "binder {} is misordered: regular binder appears before \
+             bound binder {later} in declaration {decl}",
+            binder.name
+        ));
+    }
+
+    let mut names = BTreeSet::new();
+    let mut seen_bound = BTreeSet::new();
+    let mut saw_regular = false;
+
+    for binder in binders {
+        if !names.insert(binder.name.as_str()) {
+            return Err(format!(
+                "declaration {decl} has duplicate binder {}",
+                binder.name
+            ));
+        }
+        match binder.kind {
+            BinderKind::Bound => {
+                if saw_regular {
+                    return Err(format!(
+                        "binder {} is misordered: bound binders must appear \
+                         before regular binders in declaration {decl}",
+                        binder.name
+                    ));
+                }
+                if !binder.deps.is_empty() {
+                    return Err(format!(
+                        "bound binder {} in declaration {decl} must not list \
+                         dependencies",
+                        binder.name
+                    ));
+                }
+                seen_bound.insert(binder.name.as_str());
+            }
+            BinderKind::Regular => {
+                saw_regular = true;
+                for dep in &binder.deps {
+                    if !seen_bound.contains(dep.as_str()) {
+                        return Err(format!(
+                            "binder {} in declaration {decl} depends on \
+                             unknown or later bound binder {dep}",
+                            binder.name
+                        ));
+                    }
+                }
+                if let Some(missing) = all_bound
+                    .iter()
+                    .find(|bound| !binder.deps.iter().any(|dep| dep.as_str() == **bound))
+                {
+                    return Err(format!(
+                        "binder {} in declaration {decl} is missing \
+                         dependency {missing}",
+                        binder.name
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn regular_before_later_bound(binders: &[BinderDecl]) -> Option<(&BinderDecl, &str)> {
+    binders.iter().enumerate().find_map(|(idx, binder)| {
+        if binder.kind != BinderKind::Regular {
+            return None;
+        }
+        binders[idx + 1..]
+            .iter()
+            .find(|later| later.kind == BinderKind::Bound)
+            .map(|later| (binder, later.name.as_str()))
+    })
 }
 
 fn validate_theorem_terms(
@@ -444,13 +594,7 @@ fn validate_expr_terms(
                     reason: format!("term {name} is missing arguments"),
                 });
             }
-            if let Some(reason) = &term.unsupported_reason {
-                return Err(ExportValidationError {
-                    theorem: theorem.name.clone(),
-                    use_kind,
-                    reason: format!("term {name} is unsupported: {reason}"),
-                });
-            }
+            validate_term_for_export(term, theorem, use_kind)?;
         }
         MathExpr::App { head, args } => {
             let Some(term) = terms.get(head.as_str()) else {
@@ -460,13 +604,7 @@ fn validate_expr_terms(
                     reason: format!("formula references undeclared term: {head}"),
                 });
             };
-            if let Some(reason) = &term.unsupported_reason {
-                return Err(ExportValidationError {
-                    theorem: theorem.name.clone(),
-                    use_kind,
-                    reason: format!("term {head} is unsupported: {reason}"),
-                });
-            }
+            validate_term_for_export(term, theorem, use_kind)?;
             let expected = term_input_sorts(term).len();
             if args.len() != expected {
                 return Err(ExportValidationError {

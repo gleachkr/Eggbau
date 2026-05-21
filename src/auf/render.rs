@@ -7,7 +7,7 @@ use thiserror::Error;
 use crate::OutputMode;
 use crate::cert::{CertStep, Certificate, Formula, Label, Literal, Ref, Term, TermOrFormula};
 use crate::export::{ExportEnv, RelationBundle};
-use crate::mm0::{MathExpr, Mm0Env, TheoremDecl};
+use crate::mm0::{BinderKind, MathExpr, Mm0Env, TheoremDecl};
 
 use super::notation::NotationRenderEnv;
 
@@ -125,6 +125,19 @@ pub enum AufRenderError {
 
     #[error("inconsistent inferred binding `{binder}` for rule `{rule}`")]
     InconsistentBinding { rule: String, binder: String },
+
+    #[error("bound binder `{binder}` for rule `{rule}` must instantiate to a variable")]
+    BoundBinderNonVariable { rule: String, binder: String },
+
+    #[error(
+        "bound binder `{binder}` for rule `{rule}` instantiates to duplicate \
+         variable `{variable}`"
+    )]
+    DuplicateBoundBinderInstantiation {
+        rule: String,
+        binder: String,
+        variable: String,
+    },
 
     #[error("cannot match rule `{rule}` against generated line `{label}`")]
     RuleMismatch { rule: String, label: Label },
@@ -575,11 +588,10 @@ fn congruence_application_refs(
     let mut formulas = Vec::new();
     for (idx, (old_arg, new_arg)) in old_args.iter().zip(new_args).enumerate() {
         if old_arg == new_arg {
-            let relation = relation_for_render_term(old_arg, input.theorem, export_env)
-                .ok_or_else(|| AufRenderError::FormulaInference {
-                    label: input.label.clone(),
-                    reason: "cannot infer unchanged congruence argument relation".to_owned(),
-                })?;
+            let Some(relation) = relation_for_render_term(old_arg, input.theorem, export_env)
+            else {
+                continue;
+            };
             let formula = Formula::rel(relation.clone(), old_arg.clone(), old_arg.clone());
             let label = render_reflexivity_helper(
                 input.label.as_str(),
@@ -807,7 +819,35 @@ fn infer_bindings(
         };
         ordered.insert(binder.name.clone(), value.clone());
     }
+    validate_bound_binder_instantiations(theorem, &ordered)?;
     Ok(ordered)
+}
+
+fn validate_bound_binder_instantiations(
+    theorem: &TheoremDecl,
+    bindings: &BTreeMap<String, BindingValue>,
+) -> Result<(), AufRenderError> {
+    let mut seen = BTreeSet::new();
+    for binder in theorem
+        .binders
+        .iter()
+        .filter(|binder| binder.kind == BinderKind::Bound)
+    {
+        let Some(BindingValue::Term(Term::Var { name })) = bindings.get(&binder.name) else {
+            return Err(AufRenderError::BoundBinderNonVariable {
+                rule: theorem.name.clone(),
+                binder: binder.name.clone(),
+            });
+        };
+        if !seen.insert(name.clone()) {
+            return Err(AufRenderError::DuplicateBoundBinderInstantiation {
+                rule: theorem.name.clone(),
+                binder: binder.name.clone(),
+                variable: name.clone(),
+            });
+        }
+    }
+    Ok(())
 }
 
 fn unify_formula(
