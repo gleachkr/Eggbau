@@ -1,6 +1,7 @@
 third_party
 .direnv/
 .cargo_home/
+.rustup_home/
 target/
 AGENTS.md
 PLAN.md

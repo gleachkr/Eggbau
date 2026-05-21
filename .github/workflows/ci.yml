@@ -13,7 +13,6 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_TOOLCHAIN: 1.85.0
 
 jobs:
   build-and-test:
@@ -27,12 +26,7 @@ jobs:
           submodules: recursive
 
       - name: Install Rust toolchain
-        run: |
-          rustup toolchain install "$RUST_TOOLCHAIN" \
-            --profile minimal \
-            --component clippy \
-            --component rustfmt
-          rustup default "$RUST_TOOLCHAIN"
+        run: rustup toolchain install
 
       - name: Check formatting
         run: cargo fmt --all -- --check

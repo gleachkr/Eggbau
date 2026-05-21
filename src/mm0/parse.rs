@@ -1398,16 +1398,16 @@ impl MathParser<'_> {
             self.parse_primary()?
         };
 
-        if let MathExpr::Atom { name } = &expr {
-            if let Some(arity) = self.context.terms.get(name).copied() {
-                if arity > 0 && self.next_starts_argument() {
-                    let head = name.clone();
-                    let args = (0..arity)
-                        .map(|_| self.parse_expr(u32::MAX))
-                        .collect::<Result<Vec<_>, _>>()?;
-                    expr = MathExpr::App { head, args };
-                }
-            }
+        if let MathExpr::Atom { name } = &expr
+            && let Some(arity) = self.context.terms.get(name).copied()
+            && arity > 0
+            && self.next_starts_argument()
+        {
+            let head = name.clone();
+            let args = (0..arity)
+                .map(|_| self.parse_expr(u32::MAX))
+                .collect::<Result<Vec<_>, _>>()?;
+            expr = MathExpr::App { head, args };
         }
 
         Ok(expr)

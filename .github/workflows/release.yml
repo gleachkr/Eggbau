@@ -14,7 +14,6 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_TOOLCHAIN: 1.85.0
 
 jobs:
   create-release:
@@ -71,8 +70,7 @@ jobs:
 
       - name: Install Rust toolchain
         run: |
-          rustup toolchain install ${{ env.RUST_TOOLCHAIN }} --profile minimal
-          rustup default ${{ env.RUST_TOOLCHAIN }}
+          rustup toolchain install
           rustup target add ${{ matrix.target }}
 
       - name: Build release binary
