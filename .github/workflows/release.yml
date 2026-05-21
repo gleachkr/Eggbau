@@ -1,0 +1,117 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - '*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_TOOLCHAIN: 1.85.0
+
+jobs:
+  create-release:
+    name: Create GitHub release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Create release if needed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            exit 0
+          fi
+
+          prerelease=""
+          case "$GITHUB_REF_NAME" in
+            *-*) prerelease="--prerelease" ;;
+          esac
+
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --notes "Automated eggbau binary release." \
+            --verify-tag \
+            $prerelease
+
+  build-binaries:
+    name: Build ${{ matrix.target }}
+    needs: create-release
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            package: eggbau-x86_64-unknown-linux-gnu
+          - os: macos-13
+            target: x86_64-apple-darwin
+            package: eggbau-x86_64-apple-darwin
+          - os: macos-14
+            target: aarch64-apple-darwin
+            package: eggbau-aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            package: eggbau-x86_64-pc-windows-msvc
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install ${{ env.RUST_TOOLCHAIN }} --profile minimal
+          rustup default ${{ env.RUST_TOOLCHAIN }}
+          rustup target add ${{ matrix.target }}
+
+      - name: Build release binary
+        run: cargo build --locked --release --target ${{ matrix.target }}
+
+      - name: Package Unix binary
+        id: package-unix
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          package="${{ matrix.package }}"
+          dist="dist/$package"
+          mkdir -p "$dist"
+          cp "target/${{ matrix.target }}/release/eggbau" "$dist/"
+          cp README.md "$dist/"
+          tar -C dist -czf "$package.tar.gz" "$package"
+          echo "asset=$package.tar.gz" >> "$GITHUB_OUTPUT"
+
+      - name: Package Windows binary
+        id: package-windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $Package = "${{ matrix.package }}"
+          $Binary = "target/${{ matrix.target }}/release/eggbau.exe"
+          $Dist = Join-Path "dist" $Package
+          New-Item -ItemType Directory -Path $Dist -Force | Out-Null
+          Copy-Item $Binary $Dist
+          Copy-Item "README.md" $Dist
+          $Asset = "$Package.zip"
+          Compress-Archive -Path "$Dist/*" -DestinationPath $Asset -Force
+          "asset=$Asset" >> $env:GITHUB_OUTPUT
+
+      - name: Upload release asset
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UNIX_ASSET: ${{ steps.package-unix.outputs.asset }}
+          WINDOWS_ASSET: ${{ steps.package-windows.outputs.asset }}
+        run: |
+          asset="${UNIX_ASSET:-$WINDOWS_ASSET}"
+          gh release upload "$GITHUB_REF_NAME" "$asset" --clobber
