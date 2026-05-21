@@ -2,14 +2,18 @@
 
 `vendor/egglog` is a git submodule for eggbau's patched egglog pin.
 
-Until the egglog patch is pushed to a public fork and the submodule pointer is
-updated to that commit, apply the local proof API patch after initializing the
-submodule:
+Until the proof API lands upstream, eggbau keeps a tiny local patch in
+`vendor/egglog-eggbau-proof-api.patch`. The `vendor/egglog-eggbau` wrapper
+crate applies the same patch after the submodule has been initialized:
 
 ```sh
 git submodule update --init --recursive
-git -C vendor/egglog apply ../egglog-eggbau-proof-api.patch
+CARGO_HOME="$PWD/.cargo_home" cargo build --all-targets --all-features
 ```
 
+If `vendor/egglog` is still an empty gitlink checkout, Cargo can fail while
+resolving path dependencies before the wrapper build script runs. Initialize
+the submodule first in that case.
+
 The patch exposes a narrow read-only proof reconstruction API used by eggbau's
-stage-0 proof API spike.
+proof extraction code.

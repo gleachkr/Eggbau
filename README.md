@@ -153,9 +153,15 @@ If the tools are unavailable, those tests print a skip message and return.
 
 ## Development commands
 
-The vendored egglog dependency uses the temporary read-only proof API patch
-described in `AGENTS.md`. After submodule initialization, ensure the patch is
-applied before building proof-related code.
+The vendored egglog dependency needs to be patched to expose some needed egglog 
+internals. After submodule initialization, `vendor/egglog-eggbau/build.rs` 
+applies the patch automatically before compiling proof-related code. If the 
+submodule is not initialized at all, Cargo may fail while resolving the path 
+dependency before the wrapper build script can run; initialize it with:
+
+```sh
+git submodule update --init --recursive
+```
 
 Useful validation commands:
 
