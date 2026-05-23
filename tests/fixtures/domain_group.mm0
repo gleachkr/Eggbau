@@ -1,0 +1,98 @@
+-- Abstract (non-commutative) group fixture for poking eggbau from the CLI:
+--
+--   eggbau discover tests/fixtures/domain_group.mm0
+--   eggbau script emit tests/fixtures/domain_group.mm0 \
+--       --theorem socks_and_shoes > socks_and_shoes.egg
+--   eggbau script prove tests/fixtures/domain_group.mm0 \
+--       --theorem socks_and_shoes \
+--       --script socks_and_shoes.egg \
+--       --out socks_and_shoes.auf
+--   eggbau prove tests/fixtures/domain_group.mm0 \
+--       --theorem three_factor_inv --out three_factor_inv.auf
+--
+-- The axioms are a textbook equational group: identity, two-sided inverse,
+-- associativity, plus the standard derived facts (involutivity of `ginv`,
+-- `ginv e = e`, and the socks-and-shoes anti-distribution of `ginv` over
+-- products). Each saturation law is shrinking or neutral in term size, so
+-- saturation terminates under eggbau's `:until` schedule even though the
+-- group itself is not commutative — every theorem below is provable purely
+-- by equational rewriting, with no cancellation argument required.
+
+delimiter $ ( ) $;
+sort G;
+provable sort wff;
+term eq (x y: G): wff;
+term e: G;
+term gmul (x y: G): G;
+term ginv (x: G): G;
+
+prefix e: $1$ prec max;
+prefix ginv: $⁻¹$ prec 80;
+infixl gmul: $·$ prec 60;
+infixl eq: $=$ prec 40;
+
+--| @relation G eq eq_refl eq_trans eq_sym _
+axiom eq_refl (x: G): $ eq x x $;
+axiom eq_trans (x y z: G): $ eq x y $ > $ eq y z $ > $ eq x z $;
+axiom eq_sym (x y: G): $ eq x y $ > $ eq y x $;
+
+--| @congr
+axiom gmul_congr (a b c d: G):
+  $ eq a b $ > $ eq c d $ > $ eq (gmul a c) (gmul b d) $;
+--| @congr
+axiom ginv_congr (a b: G): $ eq a b $ > $ eq (ginv a) (ginv b) $;
+
+-- Core group axioms.
+--| @saturation ltr
+axiom id_l (x: G): $ eq (gmul e x) x $;
+--| @saturation ltr
+axiom id_r (x: G): $ eq (gmul x e) x $;
+--| @saturation ltr
+axiom inv_l (x: G): $ eq (gmul (ginv x) x) e $;
+--| @saturation ltr
+axiom inv_r (x: G): $ eq (gmul x (ginv x)) e $;
+-- `both` is needed because the group is non-commutative: without it the
+-- e-graph cannot re-associate so that `inv_l` / `inv_r` patterns fire on
+-- the leading pair of a three-element product. The cost is bounded — for
+-- the small chains exercised below the Catalan factor stays tiny.
+--| @saturation both
+axiom gmul_assoc (x y z: G):
+  $ eq (gmul (gmul x y) z) (gmul x (gmul y z)) $;
+
+-- Derived but useful equational facts. Each is shrinking or neutral, so
+-- including them as saturation laws keeps the proofs short.
+--| @saturation ltr
+axiom inv_inv (x: G): $ eq (ginv (ginv x)) x $;
+--| @saturation ltr
+axiom inv_id: $ eq (ginv e) e $;
+--| @saturation ltr
+axiom inv_gmul (x y: G):
+  $ eq (ginv (gmul x y)) (gmul (ginv y) (ginv x)) $;
+
+-- Theorems to poke.
+
+theorem inv_inv_target (x: G): $ eq (ginv (ginv x)) x $;
+
+theorem inv_id_target: $ eq (ginv e) e $;
+
+theorem socks_and_shoes (x y: G):
+  $ eq (ginv (gmul x y)) (gmul (ginv y) (ginv x)) $;
+
+theorem inv_self_product (x: G):
+  $ eq (ginv (gmul x (ginv x))) e $;
+
+theorem right_cancel (x y: G):
+  $ eq (gmul (gmul x y) (ginv y)) x $;
+
+theorem left_cancel (x y: G):
+  $ eq (gmul (ginv x) (gmul x y)) y $;
+
+theorem compound_inv_l (x y: G):
+  $ eq (gmul (ginv (gmul x y)) (gmul x y)) e $;
+
+theorem three_factor_inv (x y z: G):
+  $ eq (ginv (gmul (gmul x y) z))
+       (gmul (gmul (ginv z) (ginv y)) (ginv x)) $;
+
+theorem conjugation_tail (x y: G):
+  $ eq (gmul (gmul (gmul x y) (ginv x)) x) (gmul x y) $;

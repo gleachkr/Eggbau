@@ -1,0 +1,150 @@
+-- Kleene algebra (regular expressions) fixture for poking eggbau from the CLI:
+--
+--   eggbau discover tests/fixtures/domain_kleene.mm0
+--   eggbau script emit tests/fixtures/domain_kleene.mm0 \
+--       --theorem foil > foil.egg
+--   eggbau script prove tests/fixtures/domain_kleene.mm0 \
+--       --theorem foil \
+--       --script foil.egg \
+--       --out foil.auf
+--   eggbau prove tests/fixtures/domain_kleene.mm0 \
+--       --theorem compound_star_self_concat --out compound_star.auf
+--
+-- The axioms cover the equational fragment of Kleene algebra: + is the
+-- idempotent commutative monoid with annihilator rzero/rone behaviour, ·
+-- is a monoid with rzero as a two-sided annihilator and rone as the unit,
+-- distributivity is exported in the factoring direction only (matching
+-- the boolean fixture's choice), and the * laws are restricted to the
+-- subset that is shrinking under left-to-right rewriting. With the *
+-- unfolding rules oriented "from one_plus_unfolded down to star x", the
+-- e-graph terminates under the `:until` schedule even though Kleene
+-- algebra is not finitely axiomatisable in the purely equational
+-- fragment.
+
+delimiter $ ( ) $;
+sort regex;
+provable sort wff;
+term eq (x y: regex): wff;
+term rzero: regex;
+term rone: regex;
+term plus (x y: regex): regex;
+term seq (x y: regex): regex;
+term star (x: regex): regex;
+
+prefix rzero: $∅$ prec max;
+prefix rone: $ε$ prec max;
+prefix star: $✱$ prec 80;
+infixl seq: $·$ prec 60;
+infixl plus: $+$ prec 50;
+infixl eq: $=$ prec 40;
+
+--| @relation regex eq eq_refl eq_trans eq_sym _
+axiom eq_refl (x: regex): $ eq x x $;
+axiom eq_trans (x y z: regex): $ eq x y $ > $ eq y z $ > $ eq x z $;
+axiom eq_sym (x y: regex): $ eq x y $ > $ eq y x $;
+
+--| @congr
+axiom plus_congr (a b c d: regex):
+  $ eq a b $ > $ eq c d $ > $ eq (plus a c) (plus b d) $;
+--| @congr
+axiom seq_congr (a b c d: regex):
+  $ eq a b $ > $ eq c d $ > $ eq (seq a c) (seq b d) $;
+--| @congr
+axiom star_congr (a b: regex): $ eq a b $ > $ eq (star a) (star b) $;
+
+-- + is an idempotent commutative monoid with rzero as the unit.
+--| @saturation ltr
+axiom plus_zero_l (x: regex): $ eq (plus rzero x) x $;
+--| @saturation ltr
+axiom plus_zero_r (x: regex): $ eq (plus x rzero) x $;
+--| @saturation ltr
+axiom plus_comm (x y: regex): $ eq (plus x y) (plus y x) $;
+--| @saturation ltr
+axiom plus_assoc (x y z: regex):
+  $ eq (plus (plus x y) z) (plus x (plus y z)) $;
+--| @saturation ltr
+axiom plus_idem (x: regex): $ eq (plus x x) x $;
+
+-- · is a monoid with rone as the unit and rzero as a two-sided annihilator.
+--| @saturation ltr
+axiom seq_one_l (x: regex): $ eq (seq rone x) x $;
+--| @saturation ltr
+axiom seq_one_r (x: regex): $ eq (seq x rone) x $;
+--| @saturation ltr
+axiom seq_zero_l (x: regex): $ eq (seq rzero x) rzero $;
+--| @saturation ltr
+axiom seq_zero_r (x: regex): $ eq (seq x rzero) rzero $;
+--| @saturation ltr
+axiom seq_assoc (x y z: regex):
+  $ eq (seq (seq x y) z) (seq x (seq y z)) $;
+
+-- Distributivity. Oriented in the factoring direction only, matching
+-- domain_boolean_algebra's strategy: both sides of an equation involving
+-- distribution are normalised toward a single factored representative.
+--| @saturation ltr
+axiom seq_dist_l (x y z: regex):
+  $ eq (plus (seq x y) (seq x z)) (seq x (plus y z)) $;
+--| @saturation ltr
+axiom seq_dist_r (x y z: regex):
+  $ eq (plus (seq x z) (seq y z)) (seq (plus x y) z) $;
+
+-- Star axioms. We use the shrinking equational fragment: the right-hand
+-- side of each rule is structurally smaller than the left, so saturation
+-- under `:until` always halts. Unfolding * one step (1 + x · x* = x*) is
+-- exposed as a left-to-right rewrite — the reverse direction would loop.
+--| @saturation ltr
+axiom star_zero: $ eq (star rzero) rone $;
+--| @saturation ltr
+axiom star_one: $ eq (star rone) rone $;
+--| @saturation ltr
+axiom star_star (x: regex): $ eq (star (star x)) (star x) $;
+--| @saturation ltr
+axiom star_seq_idem (x: regex):
+  $ eq (seq (star x) (star x)) (star x) $;
+--| @saturation ltr
+axiom star_unfold_l (x: regex):
+  $ eq (plus rone (seq x (star x))) (star x) $;
+--| @saturation ltr
+axiom star_unfold_r (x: regex):
+  $ eq (plus rone (seq (star x) x)) (star x) $;
+--| @saturation ltr
+axiom one_plus_star (x: regex):
+  $ eq (plus rone (star x)) (star x) $;
+--| @saturation ltr
+axiom one_plus_into_star (x: regex):
+  $ eq (star (plus rone x)) (star x) $;
+
+-- Theorems to poke. Each is provable from the axioms above; pick one
+-- with --theorem when invoking prove, script emit, or script prove.
+
+theorem star_zero_target: $ eq (star rzero) rone $;
+
+theorem star_star_target (x: regex): $ eq (star (star x)) (star x) $;
+
+theorem star_self_concat (x: regex):
+  $ eq (seq (star x) (star x)) (star x) $;
+
+theorem one_plus_under_star (x: regex):
+  $ eq (star (plus rone x)) (star x) $;
+
+theorem zero_under_star (x: regex):
+  $ eq (star (plus rzero x)) (star x) $;
+
+theorem zero_kills_chain (x y: regex):
+  $ eq (seq (seq x rzero) y) rzero $;
+
+theorem foil (a b c d: regex):
+  $ eq (seq (plus a b) (plus c d))
+       (plus (plus (plus (seq a c) (seq a d)) (seq b c)) (seq b d)) $;
+
+theorem plus_idem_chain (a b: regex):
+  $ eq (plus (plus (plus a b) (plus a b)) rzero) (plus a b) $;
+
+theorem compound_star_self_concat (a b: regex):
+  $ eq (seq (star (plus a b)) (star (plus a b))) (star (plus a b)) $;
+
+theorem star_zero_unit (x: regex):
+  $ eq (seq (star rzero) x) x $;
+
+theorem one_plus_star_collapse (x: regex):
+  $ eq (plus rone (star x)) (star x) $;
